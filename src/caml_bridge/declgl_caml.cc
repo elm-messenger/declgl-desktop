@@ -198,6 +198,8 @@ bool drive_one_frame(Callbacks& cb,
                         "[declgl/bridge] view: Renderable kind=%d (frame %d)\n",
                         static_cast<int>(r.kind_case()), frame_log - 1);
                 }
+                // Hand off to the engine for the actual draw calls.
+                engine()->render(r);
             } else {
                 std::fprintf(stderr,
                              "[declgl/bridge] view: parse failed (%zu B)\n",

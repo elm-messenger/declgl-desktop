@@ -23,11 +23,17 @@
 #include <glad/gl.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "transport_backend.pb.h"
+#include "transport_render.pb.h"
 
 namespace declgl {
+
+class ProgramRegistry;
+class RenderableWalker;
+struct RenderContext;
 
 class Engine {
 public:
@@ -56,6 +62,11 @@ public:
     // failure.
     bool exec_audio_cmd(const uint8_t* bytes, size_t len);
 
+    // Walk a Renderable tree and emit the corresponding GL draw calls
+    // onto the currently-bound framebuffer. Per-frame entry point for
+    // the bridge.
+    void render(const mlregl::transport::render::Renderable& tree);
+
     void shutdown();
 
     // Accessor used by the caml_bridge for SwapWindow / pixel-size.
@@ -66,6 +77,12 @@ private:
     SDL_GLContext  gl_ctx_      = nullptr;
     std::string    asset_root_;
     Uint64         start_ticks_ = 0;
+
+    // M3.B+: GPU resources. Lazily constructed in init_window_and_gl
+    // because they require an active GL context.
+    std::unique_ptr<ProgramRegistry>  programs_;
+    std::unique_ptr<RenderableWalker> walker_;
+    std::unique_ptr<RenderContext>    render_ctx_;
 };
 
 // Static last-error string. Set by failing engine calls; cleared by

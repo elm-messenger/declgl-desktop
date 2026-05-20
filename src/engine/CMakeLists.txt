@@ -12,6 +12,8 @@ target_include_directories(declgl_engine
 target_link_libraries(declgl_engine
     PUBLIC
         declgl_proto
+        declgl_renderer
+        declgl_gpu
         SDL3::SDL3
         glad
         glm::glm

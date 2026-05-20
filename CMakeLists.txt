@@ -60,6 +60,9 @@ add_subdirectory(third_party/glad)
 # First-party
 # ----------------------------------------------------------------------------
 add_subdirectory(src/proto_gen)
+add_subdirectory(shaders)
+add_subdirectory(src/gpu)
+add_subdirectory(src/renderer)
 add_subdirectory(src/engine)
 add_subdirectory(src/caml_bridge)
 
@@ -82,6 +85,9 @@ add_subdirectory(src/caml_bridge)
 set(_DECLGL_BUNDLE_INPUTS
     $<TARGET_FILE:declgl_caml_bridge>
     $<TARGET_FILE:declgl_engine>
+    $<TARGET_FILE:declgl_renderer>
+    $<TARGET_FILE:declgl_gpu>
+    $<TARGET_FILE:declgl_shaders>
     $<TARGET_FILE:declgl_proto>
     $<TARGET_FILE:glad>
 )
@@ -91,7 +97,7 @@ if(APPLE)
     add_custom_command(
         OUTPUT  ${_DECLGL_BUNDLE_OUT}
         COMMAND libtool -static -o ${_DECLGL_BUNDLE_OUT} ${_DECLGL_BUNDLE_INPUTS}
-        DEPENDS declgl_caml_bridge declgl_engine declgl_proto glad
+        DEPENDS declgl_caml_bridge declgl_engine declgl_renderer declgl_gpu declgl_shaders declgl_proto glad
         COMMENT "Bundling libdeclgl.a"
         VERBATIM
     )
@@ -103,12 +109,15 @@ else()
         COMMAND ${CMAKE_COMMAND} -E echo "create ${_DECLGL_BUNDLE_OUT}"   > ${_DECLGL_MRI_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_caml_bridge>" >> ${_DECLGL_MRI_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_engine>"      >> ${_DECLGL_MRI_SCRIPT}
+        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_renderer>"    >> ${_DECLGL_MRI_SCRIPT}
+        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_gpu>"         >> ${_DECLGL_MRI_SCRIPT}
+        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_shaders>"     >> ${_DECLGL_MRI_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_proto>"       >> ${_DECLGL_MRI_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:glad>"               >> ${_DECLGL_MRI_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E echo "save"                                     >> ${_DECLGL_MRI_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E echo "end"                                      >> ${_DECLGL_MRI_SCRIPT}
         COMMAND ${CMAKE_AR} -M < ${_DECLGL_MRI_SCRIPT}
-        DEPENDS declgl_caml_bridge declgl_engine declgl_proto glad
+        DEPENDS declgl_caml_bridge declgl_engine declgl_renderer declgl_gpu declgl_shaders declgl_proto glad
         COMMENT "Bundling libdeclgl.a"
         VERBATIM
     )

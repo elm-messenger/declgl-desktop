@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "gpu/program_registry.h"
+#include "renderer/render_context.h"
+#include "renderer/renderable_walker.h"
 #include "transport_audio.pb.h"
 #include "transport_backend.pb.h"
 
@@ -145,6 +148,50 @@ bool Engine::init_window_and_gl(
                     start.fbo_num());
     }
 
+    // M3.B: spin up the program registry, render context and walker.
+    // These all need an active GL context, so we construct them here
+    // rather than in [init_decoders_only].
+    programs_   = std::make_unique<ProgramRegistry>();
+    render_ctx_ = std::make_unique<RenderContext>();
+    walker_     = std::make_unique<RenderableWalker>(*programs_);
+
+    render_ctx_->view_w = static_cast<float>(start.virt_width());
+    render_ctx_->view_h = static_cast<float>(start.virt_height());
+    int pw = 0, ph = 0;
+    SDL_GetWindowSizeInPixels(window_, &pw, &ph);
+    render_ctx_->pixel_w = pw;
+    render_ctx_->pixel_h = ph;
+    glViewport(0, 0, pw, ph);
+
+    // Reasonable defaults for 2D drawing (matches the JS backend).
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA,
+                        GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Register every builtin requested by StartRegl. Names that have no
+    // vendored GLSL produce a warning but don't fail startup — that lets
+    // us light up programs incrementally across milestones.
+    if (start.has_builtin_programs()) {
+        for (const auto& name : start.builtin_programs().values()) {
+            programs_->register_builtin(name);
+        }
+    }
+
+    // Mirror the JS backend, which makes every shader in its vendored
+    // {frag,vert}.glsl tables unconditionally available regardless of
+    // whether the user enumerated them in [builtin_programs]. As we
+    // port more shaders we extend this list. Already-registered names
+    // are short-circuited inside the registry.
+    static const char* const kAlwaysOnBuiltins[] = {
+        "triangle",
+    };
+    for (const char* name : kAlwaysOnBuiltins) {
+        if (!programs_->get(name)) {
+            programs_->register_builtin(name);
+        }
+    }
+
     start_ticks_ = SDL_GetTicks();
     set_error("");
     return true;
@@ -188,6 +235,11 @@ void Engine::dispatch_backend_command(
         case BackendCommand::kCreateProgram: {
             const auto& cp = cmd.create_program();
             std::printf("[declgl] create_program name=%s\n", cp.name().c_str());
+            if (programs_ && cp.has_program()) {
+                programs_->register_program(cp.name(),
+                                            cp.program().vert(),
+                                            cp.program().frag());
+            }
             break;
         }
         case BackendCommand::kLoadAudio: {
@@ -259,6 +311,9 @@ bool Engine::exec_audio_cmd(const uint8_t* bytes, size_t len) {
 }
 
 void Engine::shutdown() {
+    walker_.reset();
+    programs_.reset();
+    render_ctx_.reset();
     if (gl_ctx_) {
         SDL_GL_DestroyContext(gl_ctx_);
         gl_ctx_ = nullptr;
@@ -268,6 +323,26 @@ void Engine::shutdown() {
         window_ = nullptr;
     }
     SDL_Quit();
+}
+
+void Engine::render(const mlregl::transport::render::Renderable& tree) {
+    if (!walker_ || !render_ctx_) return;
+
+    // Update pixel viewport in case the window was resized.
+    if (window_) {
+        int pw = 0, ph = 0;
+        SDL_GetWindowSizeInPixels(window_, &pw, &ph);
+        if (pw != render_ctx_->pixel_w || ph != render_ctx_->pixel_h) {
+            render_ctx_->pixel_w = pw;
+            render_ctx_->pixel_h = ph;
+            glViewport(0, 0, pw, ph);
+        }
+    }
+
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    walker_->render(tree, *render_ctx_);
 }
 
 }  // namespace declgl
