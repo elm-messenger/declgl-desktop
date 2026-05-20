@@ -32,14 +32,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
 endif()
 
+# Silence the "object file was built for newer 'macOS' version" link
+# warnings: vcpkg compiles deps against the host SDK, but we deploy to a
+# fixed older target. Functionally fine; the warnings are pure noise.
+if(APPLE)
+    add_link_options(-Wl,-w)
+endif()
+
 # ----------------------------------------------------------------------------
 # Dependencies (vcpkg manifest mode -> these are auto-installed on configure)
 # ----------------------------------------------------------------------------
 find_package(SDL3      CONFIG REQUIRED)
 find_package(glm       CONFIG REQUIRED)
-# Protobuf is pulled in M2; we fetch it now anyway so the configure step
-# verifies the manifest end-to-end.
 find_package(Protobuf  CONFIG REQUIRED)
+
+# Bring in the modern target-based protobuf_generate() helper.
+include("${Protobuf_DIR}/protobuf-generate.cmake")
 
 # ----------------------------------------------------------------------------
 # Third-party (vendored single-file libs)
@@ -47,6 +55,13 @@ find_package(Protobuf  CONFIG REQUIRED)
 add_subdirectory(third_party/glad)
 
 # ----------------------------------------------------------------------------
-# Subdirectories
+# First-party
+# ----------------------------------------------------------------------------
+add_subdirectory(src/proto_gen)
+add_subdirectory(src/engine)
+add_subdirectory(src/c_api)
+
+# ----------------------------------------------------------------------------
+# Examples
 # ----------------------------------------------------------------------------
 add_subdirectory(examples/demo)

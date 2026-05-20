@@ -1,132 +1,144 @@
-// declgl_demo — M1 smoke test.
+// declgl_demo — M2 round-trip test.
 //
-// Opens an SDL3 window, creates a GL 3.3 Core context, loads function
-// pointers via GLAD2, then enters a frame loop that does a colored clear
-// until the window is closed. Validates the full vcpkg + CMake + GLAD
-// stack before any real engine code is written.
+// Drives libdeclgl through its public C ABI:
+//   1. declgl_init opens a window + GL ctx + audio device.
+//   2. We encode a BackendCommandBatch in C++ and push it through
+//      declgl_exec_backend_cmd; the engine decodes and prints what it saw.
+//   3. The view callback returns a small Renderable each frame; the engine
+//      decodes it and prints its kind. (Real rendering arrives in M3.)
+//
+// This shuts down after a fixed number of frames so it's also useful as a
+// non-interactive smoke test.
 
-#include <glad/gl.h>
-#include <SDL3/SDL.h>
+#include "c_api/declgl.h"
 
-#include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
+#include "transport_backend.pb.h"
+#include "transport_render.pb.h"
 
 namespace {
 
-constexpr int kInitialWidth  = 1280;
-constexpr int kInitialHeight = 720;
+// Pre-encoded Renderable bytes. The engine borrows this every frame; the
+// demo owns the buffer for the whole run.
+struct DemoState {
+    std::string view_bytes;
+    int32_t     frames_remaining = 240;  // ~4s at 60fps
+};
 
-void log_sdl_error(const char* what) {
-    std::fprintf(stderr, "[declgl_demo] %s failed: %s\n", what, SDL_GetError());
+declgl_status_t view_cb(void*           userdata,
+                        const uint8_t** out_bytes,
+                        size_t*         out_len) {
+    auto* st = static_cast<DemoState*>(userdata);
+    *out_bytes = reinterpret_cast<const uint8_t*>(st->view_bytes.data());
+    *out_len   = st->view_bytes.size();
+    return DECLGL_OK;
+}
+
+void event_cb(void* /*userdata*/,
+              declgl_event_kind_t kind,
+              const uint8_t*      bytes,
+              size_t              len) {
+    std::printf("[demo] event kind=%d bytes=%zu\n",
+                static_cast<int>(kind), len);
+    (void)bytes;
+}
+
+// Build a small BackendCommandBatch and encode it to a byte string.
+std::string make_backend_batch() {
+    using namespace mlregl::transport::backend;
+    BackendCommandBatch batch;
+
+    {
+        auto* cmd = batch.add_commands();
+        auto* lt  = cmd->mutable_load_texture();
+        lt->set_name("enemy");
+        lt->set_url("/test/assets/enemy.png");
+        auto* opts = lt->mutable_options();
+        opts->set_mag(TextureMagOption::TEXTURE_MAG_OPTION_LINEAR);
+        opts->set_min(TextureMinOption::TEXTURE_MIN_OPTION_LINEAR);
+    }
+    {
+        auto* cmd = batch.add_commands();
+        auto* lf  = cmd->mutable_load_font();
+        lf->set_name("consolas");
+        lf->set_image_url("/assets/consolas.png");
+        lf->set_json_url("/assets/consolas.json");
+    }
+    {
+        auto* cmd = batch.add_commands();
+        auto* sr  = cmd->mutable_start_regl();
+        sr->set_virt_width(1280);
+        sr->set_virt_height(720);
+        sr->set_fbo_num(2);
+    }
+
+    std::string out;
+    batch.SerializeToString(&out);
+    return out;
+}
+
+// Build a single AtomicRenderable so the engine has something to decode
+// each frame.
+std::string make_view_bytes() {
+    using namespace mlregl::transport::render;
+    Renderable r;
+    auto* atomic = r.mutable_atomic();
+    atomic->set_program("builtin_textured_quad");
+    std::string out;
+    r.SerializeToString(&out);
+    return out;
 }
 
 }  // namespace
 
 int main(int /*argc*/, char* /*argv*/[]) {
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
-        log_sdl_error("SDL_Init");
+    GOOGLE_PROTOBUF_VERIFY_VERSION;
+
+    declgl_init_config_t cfg{};
+    cfg.window_title    = "declgl_demo (M2)";
+    cfg.window_width    = 1280;
+    cfg.window_height   = 720;
+    cfg.asset_root      = "";
+    cfg.io_thread_count = 0;  // auto
+
+    declgl_engine_t* eng = declgl_init(&cfg);
+    if (!eng) {
+        std::fprintf(stderr, "declgl_init failed: %s\n", declgl_last_error());
         return 1;
     }
 
-    // Request OpenGL 3.3 Core (forward-compatible on macOS).
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                        SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
-                        SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+    DemoState state;
+    state.view_bytes = make_view_bytes();
 
-    SDL_Window* window = SDL_CreateWindow(
-        "declgl_demo (M1)",
-        kInitialWidth, kInitialHeight,
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-    if (!window) {
-        log_sdl_error("SDL_CreateWindow");
-        SDL_Quit();
-        return 1;
-    }
+    declgl_callbacks_t cb{};
+    cb.userdata = &state;
+    cb.view     = view_cb;
+    cb.event    = event_cb;
+    declgl_set_callbacks(eng, &cb);
 
-    SDL_GLContext gl_ctx = SDL_GL_CreateContext(window);
-    if (!gl_ctx) {
-        log_sdl_error("SDL_GL_CreateContext");
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    if (!SDL_GL_MakeCurrent(window, gl_ctx)) {
-        log_sdl_error("SDL_GL_MakeCurrent");
-        SDL_GL_DestroyContext(gl_ctx);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    // Try to enable adaptive vsync, fall back to plain vsync.
-    if (!SDL_GL_SetSwapInterval(-1)) {
-        SDL_GL_SetSwapInterval(1);
-    }
-
-    // GLAD2 unified loader: resolves all GL 3.3 core entry points via
-    // SDL_GL_GetProcAddress.
-    int gl_version = gladLoadGL(
-        reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress));
-    if (gl_version == 0) {
-        std::fprintf(stderr, "[declgl_demo] gladLoadGL failed\n");
-        SDL_GL_DestroyContext(gl_ctx);
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
-
-    std::printf("[declgl_demo] GL %d.%d  vendor=%s  renderer=%s  glsl=%s\n",
-                GLAD_VERSION_MAJOR(gl_version),
-                GLAD_VERSION_MINOR(gl_version),
-                reinterpret_cast<const char*>(glGetString(GL_VENDOR)),
-                reinterpret_cast<const char*>(glGetString(GL_RENDERER)),
-                reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION)));
-
-    bool running = true;
-    Uint64 start_ticks = SDL_GetTicks();
-
-    while (running) {
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            switch (ev.type) {
-                case SDL_EVENT_QUIT:
-                    running = false;
-                    break;
-                case SDL_EVENT_KEY_DOWN:
-                    if (ev.key.key == SDLK_ESCAPE) running = false;
-                    break;
-                case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                    glViewport(0, 0, ev.window.data1, ev.window.data2);
-                    break;
-                default: break;
-            }
+    // Send a one-shot setup batch.
+    {
+        const std::string batch = make_backend_batch();
+        declgl_status_t s = declgl_exec_backend_cmd(
+            eng,
+            reinterpret_cast<const uint8_t*>(batch.data()),
+            batch.size());
+        if (s != DECLGL_OK) {
+            std::fprintf(stderr,
+                         "declgl_exec_backend_cmd failed: %d (%s)\n",
+                         s, declgl_last_error());
         }
-
-        // Resize viewport to current drawable size each frame (cheap).
-        int w = 0, h = 0;
-        SDL_GetWindowSizeInPixels(window, &w, &h);
-        glViewport(0, 0, w, h);
-
-        const float t  = static_cast<float>(SDL_GetTicks() - start_ticks) * 0.001f;
-        const float r  = 0.5f + 0.5f * std::sin(t * 0.7f);
-        const float g  = 0.5f + 0.5f * std::sin(t * 0.9f + 2.0f);
-        const float b  = 0.5f + 0.5f * std::sin(t * 1.1f + 4.0f);
-
-        glClearColor(r, g, b, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        SDL_GL_SwapWindow(window);
     }
 
-    SDL_GL_DestroyContext(gl_ctx);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    while (declgl_should_run(eng) && state.frames_remaining-- > 0) {
+        declgl_run_frame(eng);
+    }
+
+    declgl_shutdown(eng);
+    google::protobuf::ShutdownProtobufLibrary();
     return 0;
 }
