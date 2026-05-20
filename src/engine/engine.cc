@@ -1,22 +1,17 @@
-// engine.cc — Internal C++ engine implementation.
+// engine.cc — Internal C++ engine implementation for the desktop backend.
 
 #include "engine/engine.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
-#include <thread>
 
 #include "transport_audio.pb.h"
 #include "transport_backend.pb.h"
-#include "transport_render.pb.h"
 
 namespace declgl {
 
 namespace {
 
-// Static last-error string. We use a function-local static so it's lazily
-// initialized and avoids any header-only state.
 std::string& last_error_storage() {
     static std::string s;
     return s;
@@ -53,7 +48,20 @@ const char* last_error() { return last_error_storage().c_str(); }
 Engine::Engine() = default;
 Engine::~Engine() { shutdown(); }
 
-bool Engine::init(const declgl_init_config_t& cfg) {
+void Engine::init_decoders_only() {
+    // No persistent decoder state yet. Reserved for M3+ caches.
+    set_error("");
+}
+
+bool Engine::init_window_and_gl(
+    const mlregl::transport::backend::StartRegl& start) {
+
+    if (window_) {
+        // Idempotent on repeated StartRegl — bridge guards against this
+        // too, but be defensive.
+        return true;
+    }
+
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS)) {
         set_error(std::string("SDL_Init: ") + SDL_GetError());
         return false;
@@ -69,14 +77,17 @@ bool Engine::init(const declgl_init_config_t& cfg) {
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    const char* title = (cfg.window_title && *cfg.window_title)
-                            ? cfg.window_title
-                            : "declgl";
-    const int32_t w = cfg.window_width  > 0 ? cfg.window_width  : 1280;
-    const int32_t h = cfg.window_height > 0 ? cfg.window_height : 720;
+    // StartRegl carries virt_width/virt_height as the logical/virtual
+    // size; the desktop backend currently treats them 1:1 as window size.
+    const int32_t w = start.virt_width()  > 0
+                          ? static_cast<int32_t>(start.virt_width())
+                          : 1280;
+    const int32_t h = start.virt_height() > 0
+                          ? static_cast<int32_t>(start.virt_height())
+                          : 720;
 
     window_ = SDL_CreateWindow(
-        title, w, h,
+        "declgl", w, h,
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!window_) {
         set_error(std::string("SDL_CreateWindow: ") + SDL_GetError());
@@ -123,162 +134,84 @@ bool Engine::init(const declgl_init_config_t& cfg) {
                 reinterpret_cast<const char*>(glGetString(GL_RENDERER)),
                 reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION)));
 
-    asset_root_ = (cfg.asset_root && *cfg.asset_root) ? cfg.asset_root : "";
-    io_threads_ = cfg.io_thread_count > 0
-                      ? cfg.io_thread_count
-                      : std::min<int32_t>(
-                            4,
-                            static_cast<int32_t>(std::max(1u,
-                                std::thread::hardware_concurrency())));
+    if (start.has_builtin_programs()) {
+        std::printf("[declgl] start: virt=%gx%g fbo_num=%u builtins=%d\n",
+                    start.virt_width(), start.virt_height(),
+                    start.fbo_num(),
+                    start.builtin_programs().values_size());
+    } else {
+        std::printf("[declgl] start: virt=%gx%g fbo_num=%u\n",
+                    start.virt_width(), start.virt_height(),
+                    start.fbo_num());
+    }
+
     start_ticks_ = SDL_GetTicks();
-    running_     = true;
     set_error("");
     return true;
 }
 
-void Engine::pump_events() {
-    SDL_Event ev;
-    while (SDL_PollEvent(&ev)) {
-        switch (ev.type) {
-            case SDL_EVENT_QUIT:
-                running_ = false;
-                break;
-            case SDL_EVENT_KEY_DOWN:
-                if (ev.key.key == SDLK_ESCAPE) running_ = false;
-                break;
-            case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                glViewport(0, 0, ev.window.data1, ev.window.data2);
-                break;
-            default:
-                break;
-        }
-        // M3+: forward selected events to host as DECLGL_EVENT_INPUT.
-    }
-}
-
-void Engine::render_view() {
-    // Placeholder render: animated clear color so we can see the loop is
-    // alive. Real renderer arrives in M3.
-    int w = 0, h = 0;
-    SDL_GetWindowSizeInPixels(window_, &w, &h);
-    glViewport(0, 0, w, h);
-
-    const float t  = static_cast<float>(SDL_GetTicks() - start_ticks_) * 0.001f;
-    const float r  = 0.5f + 0.5f * std::sin(t * 0.7f);
-    const float g  = 0.5f + 0.5f * std::sin(t * 0.9f + 2.0f);
-    const float b  = 0.5f + 0.5f * std::sin(t * 1.1f + 4.0f);
-
-    glClearColor(r, g, b, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    if (callbacks_.view) {
-        const uint8_t* bytes = nullptr;
-        size_t         len   = 0;
-        if (callbacks_.view(callbacks_.userdata, &bytes, &len) == DECLGL_OK
-            && bytes && len > 0) {
-            // M2: decode and report. M3+: actually render.
-            mlregl::transport::render::Renderable r;
-            if (r.ParseFromArray(bytes, static_cast<int>(len))) {
-                std::printf("[declgl] view: Renderable kind=%d\n",
-                            static_cast<int>(r.kind_case()));
-            } else {
-                std::fprintf(stderr,
-                             "[declgl] view: failed to parse Renderable (%zu B)\n",
-                             len);
-            }
-        }
-    }
-
-    SDL_GL_SwapWindow(window_);
-}
-
-declgl_status_t Engine::run_frame() {
-    pump_events();
-    render_view();
-    return DECLGL_OK;
-}
-
-declgl_status_t Engine::exec_backend_cmd(const uint8_t* bytes, size_t len) {
+void Engine::dispatch_backend_command(
+    const mlregl::transport::backend::BackendCommand& cmd) {
     using namespace mlregl::transport::backend;
-    BackendCommandBatch batch;
-    if (!batch.ParseFromArray(bytes, static_cast<int>(len))) {
-        set_error("exec_backend_cmd: ParseFromArray failed");
-        return DECLGL_ERR_DECODE_FAILED;
-    }
-
-    std::printf("[declgl] backend: BackendCommandBatch with %d commands\n",
-                batch.commands_size());
-
-    for (const auto& cmd : batch.commands()) {
-        switch (cmd.kind_case()) {
-            case BackendCommand::kLoadTexture: {
-                const auto& lt = cmd.load_texture();
-                std::printf("  - load_texture name=%s url=%s",
-                            lt.name().c_str(), lt.url().c_str());
-                if (lt.has_options()) {
-                    const auto& o = lt.options();
-                    std::printf(" mag=%s min=%s",
-                                describe_mag(o.mag()),
-                                describe_min(o.min()));
-                    if (o.has_crop()) {
-                        const auto& c = o.crop();
-                        std::printf(" crop=(%d,%d,%dx%d)",
-                                    c.x(), c.y(), c.width(), c.height());
-                    }
+    switch (cmd.kind_case()) {
+        case BackendCommand::kLoadTexture: {
+            const auto& lt = cmd.load_texture();
+            std::printf("[declgl] load_texture name=%s url=%s",
+                        lt.name().c_str(), lt.url().c_str());
+            if (lt.has_options()) {
+                const auto& o = lt.options();
+                std::printf(" mag=%s min=%s",
+                            describe_mag(o.mag()),
+                            describe_min(o.min()));
+                if (o.has_crop()) {
+                    const auto& c = o.crop();
+                    std::printf(" crop=(%d,%d,%dx%d)",
+                                c.x(), c.y(), c.width(), c.height());
                 }
-                std::printf("\n");
-                break;
             }
-            case BackendCommand::kLoadFont: {
-                const auto& lf = cmd.load_font();
-                std::printf("  - load_font name=%s image=%s json=%s\n",
-                            lf.name().c_str(),
-                            lf.image_url().c_str(),
-                            lf.json_url().c_str());
-                break;
-            }
-            case BackendCommand::kConfigRegl: {
-                std::printf("  - config_regl interval_ms=%g\n",
-                            cmd.config_regl().interval_ms());
-                break;
-            }
-            case BackendCommand::kStartRegl: {
-                const auto& sr = cmd.start_regl();
-                std::printf("  - start_regl virt=%gx%g fbo_num=%u",
-                            sr.virt_width(), sr.virt_height(),
-                            sr.fbo_num());
-                if (sr.has_builtin_programs()) {
-                    std::printf(" builtins=%d",
-                                sr.builtin_programs().values_size());
-                }
-                std::printf("\n");
-                break;
-            }
-            case BackendCommand::kCreateProgram: {
-                const auto& cp = cmd.create_program();
-                std::printf("  - create_program name=%s\n", cp.name().c_str());
-                break;
-            }
-            case BackendCommand::kLoadAudio: {
-                std::printf("  - load_audio url=%s\n",
-                            cmd.load_audio().audio_url().c_str());
-                break;
-            }
-            case BackendCommand::KIND_NOT_SET:
-            default:
-                std::printf("  - <unset command>\n");
-                break;
+            std::printf("\n");
+            break;
         }
+        case BackendCommand::kLoadFont: {
+            const auto& lf = cmd.load_font();
+            std::printf("[declgl] load_font name=%s image=%s json=%s\n",
+                        lf.name().c_str(),
+                        lf.image_url().c_str(),
+                        lf.json_url().c_str());
+            break;
+        }
+        case BackendCommand::kConfigRegl: {
+            std::printf("[declgl] config_regl interval_ms=%g\n",
+                        cmd.config_regl().interval_ms());
+            break;
+        }
+        case BackendCommand::kCreateProgram: {
+            const auto& cp = cmd.create_program();
+            std::printf("[declgl] create_program name=%s\n", cp.name().c_str());
+            break;
+        }
+        case BackendCommand::kLoadAudio: {
+            std::printf("[declgl] load_audio url=%s\n",
+                        cmd.load_audio().audio_url().c_str());
+            break;
+        }
+        case BackendCommand::kStartRegl:
+            // The bridge handles StartRegl itself (it owns window+loop
+            // lifecycle); it never forwards it here.
+            break;
+        case BackendCommand::KIND_NOT_SET:
+        default:
+            std::fprintf(stderr, "[declgl] <unset command>\n");
+            break;
     }
-    return DECLGL_OK;
 }
 
-declgl_status_t Engine::exec_audio_cmd(const uint8_t* bytes, size_t len) {
+bool Engine::exec_audio_cmd(const uint8_t* bytes, size_t len) {
     using namespace mlregl::transport::audio;
     AudioCommandBatch batch;
     if (!batch.ParseFromArray(bytes, static_cast<int>(len))) {
         set_error("exec_audio_cmd: ParseFromArray failed");
-        return DECLGL_ERR_DECODE_FAILED;
+        return false;
     }
 
     std::printf("[declgl] audio: AudioCommandBatch with %d actions\n",
@@ -318,11 +251,11 @@ declgl_status_t Engine::exec_audio_cmd(const uint8_t* bytes, size_t len) {
                 break;
             case AudioAction::KIND_NOT_SET:
             default:
-                std::printf("  - <unset action>\n");
+                std::fprintf(stderr, "  - <unset action>\n");
                 break;
         }
     }
-    return DECLGL_OK;
+    return true;
 }
 
 void Engine::shutdown() {
@@ -334,10 +267,7 @@ void Engine::shutdown() {
         SDL_DestroyWindow(window_);
         window_ = nullptr;
     }
-    // Quit only if we'd called Init successfully. Calling SDL_Quit twice is
-    // harmless but noisy.
     SDL_Quit();
-    running_ = false;
 }
 
 }  // namespace declgl

@@ -1,8 +1,21 @@
-// engine.h — Internal C++ engine class (NOT part of the public ABI).
+// engine.h — Internal C++ engine class for the desktop ml_regl backend.
 //
-// declgl_engine_t (the opaque C handle) is just a typedef to this class.
-// All the SDL3 / GL / decode work lives here. The c_api/ shim translates
-// the C ABI to method calls on this object.
+// The OCaml caml_bridge is the only public entry point into this code.
+// The bridge owns its own per-frame loop; the engine owns SDL/GL state +
+// per-command decode/dispatch.
+//
+// Lifetime, mirroring the JS backend:
+//
+//   1. The bridge constructs an Engine the first time OCaml ships any
+//      command, and immediately calls [init_decoders_only].
+//   2. Subsequent BackendCommand kinds (LoadTexture, ConfigRegl,
+//      CreateProgram, LoadFont, LoadAudio) are forwarded one by one via
+//      [dispatch_backend_command].
+//   3. When a [StartRegl] arrives, the bridge calls
+//      [init_window_and_gl(start)] to bring up SDL3 + window + GL ctx +
+//      glad, then enters its per-frame loop. The engine is otherwise
+//      passive — events are pumped by the bridge directly from SDL.
+//   4. On user-requested exit, the bridge calls [shutdown].
 
 #pragma once
 
@@ -12,11 +25,10 @@
 #include <cstdint>
 #include <string>
 
-#include "c_api/declgl.h"
+#include "transport_backend.pb.h"
 
 namespace declgl {
 
-// Internal engine state. Lifetime is owned by the C ABI shim.
 class Engine {
 public:
     Engine();
@@ -25,39 +37,38 @@ public:
     Engine(const Engine&)            = delete;
     Engine& operator=(const Engine&) = delete;
 
-    // Bring up SDL3 + window + GL ctx + glad. Returns false on failure;
-    // caller should check declgl::last_error() (set via set_error()).
-    bool init(const declgl_init_config_t& cfg);
+    // Phase 1: cheap constructor-side setup. Currently a no-op — kept as
+    // an explicit step so future decoder/cache state has a clear home.
+    void init_decoders_only();
 
-    void set_callbacks(const declgl_callbacks_t& cb) { callbacks_ = cb; }
+    // Phase 2: bring up SDL3 + window + GL ctx + glad. Driven by a
+    // [StartRegl] BackendCommand. Returns false on failure; caller can
+    // read [last_error()].
+    bool init_window_and_gl(
+        const mlregl::transport::backend::StartRegl& start);
 
-    // True until the user closes the window.
-    bool should_run() const { return running_; }
+    // Per-command dispatch (decode-and-log for now; M3+ wires real work).
+    // The bridge calls this for every non-StartRegl BackendCommand.
+    void dispatch_backend_command(
+        const mlregl::transport::backend::BackendCommand& cmd);
 
-    // One frame: pump events, request view from host, draw, swap.
-    declgl_status_t run_frame();
-
-    // Decode + dispatch a BackendCommandBatch / AudioCommandBatch.
-    declgl_status_t exec_backend_cmd(const uint8_t* bytes, size_t len);
-    declgl_status_t exec_audio_cmd  (const uint8_t* bytes, size_t len);
+    // Decode + dispatch an AudioCommandBatch. Returns false on parse
+    // failure.
+    bool exec_audio_cmd(const uint8_t* bytes, size_t len);
 
     void shutdown();
 
+    // Accessor used by the caml_bridge for SwapWindow / pixel-size.
+    SDL_Window* sdl_window() const { return window_; }
+
 private:
-    void pump_events();
-    void render_view();
-
-    SDL_Window*          window_   = nullptr;
-    SDL_GLContext        gl_ctx_   = nullptr;
-    bool                 running_  = false;
-
-    declgl_callbacks_t   callbacks_{};
-    std::string          asset_root_;
-    int32_t              io_threads_ = 0;
-    Uint64               start_ticks_ = 0;
+    SDL_Window*    window_      = nullptr;
+    SDL_GLContext  gl_ctx_      = nullptr;
+    std::string    asset_root_;
+    Uint64         start_ticks_ = 0;
 };
 
-// Set / read a static last-error string. Set by failing calls; cleared by
+// Static last-error string. Set by failing engine calls; cleared by
 // successful ones via set_error("").
 void        set_error(std::string msg);
 const char* last_error();
