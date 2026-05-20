@@ -157,6 +157,16 @@ bool Engine::init_window_and_gl(
 
     render_ctx_->view_w = static_cast<float>(start.virt_width());
     render_ctx_->view_h = static_cast<float>(start.virt_height());
+
+    // Default camera = canvas centre, identity zoom, zero rotation.
+    // Matches ml-regl-js/src/app.js: `camera = [virtWidth/2, virtHeight/2, 1.0, 0.0]`.
+    // Group-scoped cameras override this on the way down via the walker.
+    render_ctx_->camera = {
+        render_ctx_->view_w * 0.5f,
+        render_ctx_->view_h * 0.5f,
+        1.0f,
+        0.0f,
+    };
     int pw = 0, ph = 0;
     SDL_GetWindowSizeInPixels(window_, &pw, &ph);
     render_ctx_->pixel_w = pw;
@@ -182,13 +192,31 @@ bool Engine::init_window_and_gl(
     // {frag,vert}.glsl tables unconditionally available regardless of
     // whether the user enumerated them in [builtin_programs]. As we
     // port more shaders we extend this list. Already-registered names
-    // are short-circuited inside the registry.
-    static const char* const kAlwaysOnBuiltins[] = {
-        "triangle",
+    // are short-circuited.
+    //
+    // Most builtins use their own (vert, frag) pair under the same
+    // name, but two need cross-program pairing to match the JS
+    // backend's behaviour:
+    //   - `roundedRect` reuses circle's vert with its own frag
+    //   - `quad` and `poly` reuse the entire `triangle` pair
+    struct BuiltinSpec {
+        const char* name;
+        const char* vert_from;  // builtin name to pull vertex source
+        const char* frag_from;  // builtin name to pull fragment source
     };
-    for (const char* name : kAlwaysOnBuiltins) {
-        if (!programs_->get(name)) {
-            programs_->register_builtin(name);
+    static const BuiltinSpec kAlwaysOnBuiltins[] = {
+        // M3.B: pure fill triangle
+        { "triangle",    "triangle", "triangle" },
+        // M3.C: more 2D primitives
+        { "rect",        "rect",     "rect"     },
+        { "circle",      "circle",   "circle"   },
+        { "roundedRect", "circle",   "roundedRect" },
+        { "quad",        "triangle", "triangle" },
+        { "poly",        "triangle", "triangle" },
+    };
+    for (const auto& s : kAlwaysOnBuiltins) {
+        if (!programs_->get(s.name)) {
+            programs_->register_builtin_alias(s.name, s.vert_from, s.frag_from);
         }
     }
 

@@ -12,6 +12,11 @@
 set(_SHADER_FILES
     triangle.vert.glsl
     triangle.frag.glsl
+    rect.vert.glsl
+    rect.frag.glsl
+    circle.vert.glsl
+    circle.frag.glsl
+    roundedRect.frag.glsl
 )
 
 set(_GEN_HDR "${CMAKE_CURRENT_BINARY_DIR}/builtin_shaders.h")

@@ -24,6 +24,17 @@ public:
     // exists.
     bool register_builtin(std::string_view name);
 
+    // Like [register_builtin] but lets the caller choose where the
+    // vertex and fragment sources come from independently. This is the
+    // mechanism we use to faithfully reproduce the JS backend's
+    // cross-program shader pairings:
+    //   - `roundedRect` pairs `circle`'s vert with `roundedRect`'s frag
+    //   - `quad` and `poly` reuse the entire `triangle` pair
+    // The resulting compiled program is registered under `name`.
+    bool register_builtin_alias(std::string_view name,
+                                std::string_view vert_source_name,
+                                std::string_view frag_source_name);
+
     // Returns nullptr if not found.
     const Program* get(std::string_view name) const;
 

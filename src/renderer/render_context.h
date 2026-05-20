@@ -13,6 +13,10 @@ struct RenderContext {
     float view_h = 0.0f;
 
     // Camera as the JS shaders consume it: vec4(cx, cy, zoom, rotation).
+    // The default value here is just a placeholder; the engine
+    // initializes it to canvas centre (virt_w/2, virt_h/2, 1, 0)
+    // immediately after constructing the RenderContext, mirroring
+    // ml-regl-js/src/app.js's startup: `camera = [virtWidth/2, virtHeight/2, 1, 0]`.
     std::array<float, 4> camera{0.0f, 0.0f, 1.0f, 0.0f};
 
     // Default-frame target FBO. 0 = system framebuffer.
