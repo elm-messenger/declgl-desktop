@@ -1,0 +1,25 @@
+# Build outputs
+build/
+build-*/
+out/
+
+# vcpkg manifest installed cache (generated under build/)
+vcpkg_installed/
+
+# CMake state
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake-build-*/
+*.cmake
+!CMakeLists.txt
+!CMakePresets.json
+
+# Compiler / IDE
+compile_commands.json
+.cache/
+.clangd/
+.vscode/
+.idea/
+*.swp
+.DS_Store
