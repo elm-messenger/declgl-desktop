@@ -1,0 +1,7 @@
+(executable
+ (name capture)
+ (public_name declgl_capture)
+ (package ml_regl_core)
+ (libraries ml_regl_core)
+ (flags
+  (:standard -warn-error -A)))

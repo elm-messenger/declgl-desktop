@@ -65,3 +65,8 @@ add_subdirectory(src/c_api)
 # Examples
 # ----------------------------------------------------------------------------
 add_subdirectory(examples/demo)
+
+# ----------------------------------------------------------------------------
+# Tools (M2.5: capture + replay regression harness)
+# ----------------------------------------------------------------------------
+add_subdirectory(tools/replay)
