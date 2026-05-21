@@ -70,6 +70,13 @@ private:
     void render_atomic(const mlregl::transport::render::AtomicRenderable& a,
                        const RenderContext& ctx);
 
+    // M3.F: textbox branch. Resolves the atomic's `fonts` field to a
+    // [Font] + atlas texture, runs the JS-equivalent layout algorithm
+    // to produce a per-glyph quad list, uploads dynamic VBOs, and
+    // issues one [textbox] draw call.
+    void render_textbox(const mlregl::transport::render::AtomicRenderable& a,
+                        const RenderContext& ctx);
+
     // Free an FBO if id >= 0. Convenience wrapper around
     // FboPool::release that null-guards the pool.
     void release_pid(int pid, const RenderContext& ctx);

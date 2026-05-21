@@ -9,6 +9,8 @@
 #include "gpu/fbo_pool.h"
 #include "renderer/render_context.h"
 #include "renderer/renderable_walker.h"
+#include "resources/font.h"
+#include "resources/font_registry.h"
 #include "resources/image_decoder.h"
 #include "resources/texture.h"
 #include "resources/texture_registry.h"
@@ -191,10 +193,12 @@ bool Engine::init_window_and_gl(
     // rather than in [init_decoders_only].
     programs_   = std::make_unique<ProgramRegistry>();
     textures_   = std::make_unique<TextureRegistry>();
+    fonts_      = std::make_unique<FontRegistry>();
     fbos_       = std::make_unique<FboPool>();
     render_ctx_ = std::make_unique<RenderContext>();
     walker_     = std::make_unique<RenderableWalker>(*programs_);
     render_ctx_->textures = textures_.get();
+    render_ctx_->fonts    = fonts_.get();
     render_ctx_->fbos     = fbos_.get();
 
     render_ctx_->view_w = static_cast<float>(start.virt_width());
@@ -288,6 +292,9 @@ bool Engine::init_window_and_gl(
         { "compFade",           "effect", "compFade"          },
         { "alphamult",          "effect", "alphamult"         },
         { "colormult",          "effect", "colormult"         },
+        // M3.F: MSDF text. Single program; the walker generates the
+        // per-frame quad VBO from the [Font]'s glyph table on demand.
+        { "textbox",            "text",   "text"              },
     };
     for (const auto& s : kAlwaysOnBuiltins) {
         if (!programs_->get(s.name)) {
@@ -392,6 +399,95 @@ void Engine::dispatch_backend_command(
                         lf.name().c_str(),
                         lf.image_url().c_str(),
                         lf.json_url().c_str());
+
+            auto fail = [&](const char* why) {
+                std::fprintf(stderr,
+                             "[declgl] load_font '%s' failed: %s\n",
+                             lf.name().c_str(), why);
+                BackendEvent ev;
+                ev.mutable_font_loadfail()->set_name(lf.name());
+                ship_event(ev);
+            };
+
+            if (!textures_ || !fonts_) {
+                fail("registries not initialized (no StartRegl yet?)");
+                break;
+            }
+
+            // 1. Read the JSON metrics off disk. We bring the whole
+            //    file into a std::string in one shot — BMFont JSONs are
+            //    tens of KB at most.
+            std::string json_bytes;
+            {
+                FILE* fp = std::fopen(lf.json_url().c_str(), "rb");
+                if (!fp) {
+                    fail("fopen(json_url)");
+                    break;
+                }
+                std::fseek(fp, 0, SEEK_END);
+                const long n = std::ftell(fp);
+                std::fseek(fp, 0, SEEK_SET);
+                if (n < 0) {
+                    std::fclose(fp);
+                    fail("ftell(json_url)");
+                    break;
+                }
+                json_bytes.resize(static_cast<size_t>(n));
+                const size_t r = std::fread(json_bytes.data(), 1,
+                                            json_bytes.size(), fp);
+                std::fclose(fp);
+                if (r != json_bytes.size()) {
+                    fail("fread(json_url) short read");
+                    break;
+                }
+            }
+
+            // 2. Parse it.
+            auto font = std::make_unique<Font>();
+            if (!font->parse(json_bytes.data(), json_bytes.size())) {
+                std::fprintf(stderr,
+                             "[declgl] load_font '%s': %s\n",
+                             lf.name().c_str(), font->error().c_str());
+                fail("Font::parse");
+                break;
+            }
+
+            // 3. Load the atlas PNG and upload as a GL texture. Mirrors
+            //    the LoadTexture path: linear/linear filter, no mip
+            //    chain (msdfgen output is sized for the runtime), no
+            //    crop. We register it under its [image_url] so multiple
+            //    fonts can share the same atlas (matches JS).
+            DecodedImage img = decode_image_file(lf.image_url(), ImageCrop{});
+            if (!img.ok()) {
+                fail("decode_image_file");
+                break;
+            }
+
+            auto tex = std::make_unique<Texture>();
+            if (!tex->upload_rgba8(img.width, img.height, img.pixels.get(),
+                                   TextureFilter::Linear,
+                                   TextureFilter::Linear,
+                                   /*generate_mipmaps=*/false)) {
+                fail("Texture::upload_rgba8");
+                break;
+            }
+            textures_->register_texture(lf.image_url(), std::move(tex));
+
+            // 4. Register the parsed font, remembering the atlas key so
+            //    the walker can resolve `fonts -> texture` indirectly.
+            std::printf("[declgl/font] '%s': %d glyphs, %d kernings, "
+                        "%dx%d atlas, lineHeight=%d base=%d range=%.1f\n",
+                        lf.name().c_str(),
+                        font->glyph_count(), font->kerning_count(),
+                        font->scaleW(), font->scaleH(),
+                        font->lineHeight(), font->base(),
+                        font->distanceRange());
+            fonts_->register_font(lf.name(), std::move(font), lf.image_url());
+
+            // 5. Ship the success event back to OCaml.
+            BackendEvent ev;
+            ev.mutable_font_loaded()->set_name(lf.name());
+            ship_event(ev);
             break;
         }
         case BackendCommand::kConfigRegl: {
@@ -481,6 +577,7 @@ void Engine::shutdown() {
     walker_.reset();
     programs_.reset();
     textures_.reset();
+    fonts_.reset();
     fbos_.reset();
     render_ctx_.reset();
     if (gl_ctx_) {

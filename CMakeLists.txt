@@ -47,6 +47,7 @@ endif()
 find_package(SDL3      CONFIG REQUIRED)
 find_package(glm       CONFIG REQUIRED)
 find_package(Protobuf  CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # Bring in the modern target-based protobuf_generate() helper.
 include("${Protobuf_DIR}/protobuf-generate.cmake")

@@ -28,6 +28,8 @@ set(_SHADER_FILES
     compFade.frag.glsl
     alphamult.frag.glsl
     colormult.frag.glsl
+    text.vert.glsl
+    text.frag.glsl
 )
 
 set(_GEN_HDR "${CMAKE_CURRENT_BINARY_DIR}/builtin_shaders.h")

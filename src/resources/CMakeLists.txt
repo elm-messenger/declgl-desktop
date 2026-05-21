@@ -8,6 +8,8 @@ add_library(declgl_resources STATIC
     texture.cc
     texture_registry.cc
     image_decoder.cc
+    font.cc
+    font_registry.cc
 )
 
 set_target_properties(declgl_resources PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -21,4 +23,5 @@ target_link_libraries(declgl_resources
         glad
     PRIVATE
         stb_image
+        nlohmann_json::nlohmann_json
 )

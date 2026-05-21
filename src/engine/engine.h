@@ -34,6 +34,7 @@ namespace declgl {
 
 class ProgramRegistry;
 class TextureRegistry;
+class FontRegistry;
 class RenderableWalker;
 class FboPool;
 struct RenderContext;
@@ -107,6 +108,7 @@ private:
     // because they require an active GL context.
     std::unique_ptr<ProgramRegistry>  programs_;
     std::unique_ptr<TextureRegistry>  textures_;
+    std::unique_ptr<FontRegistry>     fonts_;
     std::unique_ptr<FboPool>          fbos_;
     std::unique_ptr<RenderableWalker> walker_;
     std::unique_ptr<RenderContext>    render_ctx_;

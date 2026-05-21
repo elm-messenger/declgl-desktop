@@ -12,6 +12,8 @@
 
 #include "gpu/fbo_pool.h"
 #include "renderer/render_context.h"
+#include "resources/font.h"
+#include "resources/font_registry.h"
 #include "resources/texture.h"
 #include "resources/texture_registry.h"
 
@@ -252,6 +254,17 @@ void RenderableWalker::render_atomic(const AtomicRenderable& a,
             glClearColor(0.f, 0.f, 0.f, 1.f);
         }
         glClear(GL_COLOR_BUFFER_BIT);
+        return;
+    }
+
+    // M3.F: textbox follows a fundamentally different geometry source
+    // (per-frame layout against an MSDF atlas) than the other primitive
+    // / texture programs, so it gets its own branch with custom
+    // uniform plumbing. Bail out early before the generic field→uniform
+    // loop so `text`, `fonts`, `align`, etc. don't leak into uniform
+    // binding.
+    if (prog_name == "textbox") {
+        render_textbox(a, ctx);
         return;
     }
 
@@ -906,6 +919,447 @@ int RenderableWalker::apply_effect(
     draw_fullscreen_quad(*prog);
     glBindTexture(GL_TEXTURE_2D, 0);
     return npid;
+}
+
+// ----------------------------------------------------------------------------
+// M3.F: textbox rendering.
+//
+// Faithful port of ml-regl-js/src/text.js (FontManager.layout +
+// populateBuffers). One-shot algorithm, no caching: msdfgen layout is
+// cheap enough to recompute every frame and the M3 milestone doesn't
+// need the JS LRU/hash cache to hit playable framerates. We can revisit
+// once the cost shows up in a profile.
+//
+// UV math note: this differs from the JS reference because we don't
+// upload the atlas with `flipY: true` (the JS engine flips images by
+// default; the desktop backend doesn't). The Glyph struct stores
+// `v = y/scaleH` (top edge of the glyph in atlas-space, where v grows
+// downward), and we pair geometry-top (`y+h` in textbox-local space,
+// rendered visually upper after the view's negated Y axis kicks in)
+// with the smaller-v UV corner. See [resources/font.cc] for the
+// pre-divided UV calculation.
+// ----------------------------------------------------------------------------
+void RenderableWalker::render_textbox(const AtomicRenderable& a,
+                                      const RenderContext& ctx) {
+    const Program* prog = programs_.get("textbox");
+    if (!prog) {
+        static bool warned = false;
+        if (!warned) {
+            std::fprintf(stderr,
+                         "[declgl/text] no 'textbox' program registered\n");
+            warned = true;
+        }
+        return;
+    }
+    if (!ctx.fonts || !ctx.textures) {
+        return;  // pre-StartRegl race; silently drop, mirrors JS
+    }
+
+    // ---- 1. Pull the option fields ---------------------------------------
+    const Value* text_v = find_field(a, "text");
+    if (!text_v || text_v->kind_case() != Value::kStringValue) {
+        return;  // empty text; nothing to draw
+    }
+    const std::string& text = text_v->string_value();
+    if (text.empty()) return;
+
+    // Resolve fonts: prefer `fonts` (string list) over `font` (single).
+    std::vector<std::string> font_names;
+    if (const Value* fs = find_field(a, "fonts");
+        fs && fs->kind_case() == Value::kStringArrayValue) {
+        for (const auto& s : fs->string_array_value().values()) {
+            font_names.push_back(s);
+        }
+    } else if (const Value* fv = find_field(a, "font");
+               fv && fv->kind_case() == Value::kStringValue) {
+        font_names.push_back(fv->string_value());
+    }
+    if (font_names.empty()) return;
+
+    // Look up the FontEntry for each font and verify they all share
+    // a single atlas texture (mirrors the JS guard).
+    std::vector<const Font*> fonts;
+    fonts.reserve(font_names.size());
+    std::string atlas_key;
+    for (const auto& name : font_names) {
+        const FontEntry* fe = ctx.fonts->get(name);
+        if (!fe || !fe->font) {
+            return;  // not yet loaded, drop silently
+        }
+        if (atlas_key.empty()) {
+            atlas_key = fe->texture_name;
+        } else if (atlas_key != fe->texture_name) {
+            static std::string last;
+            if (last != name) {
+                std::fprintf(stderr,
+                             "[declgl/text] textbox '%s' mixes fonts with "
+                             "different atlases ('%s' vs '%s'); using first\n",
+                             name.c_str(), atlas_key.c_str(),
+                             fe->texture_name.c_str());
+                last = name;
+            }
+            // Soldier on with the first atlas; this is recoverable.
+        }
+        fonts.push_back(fe->font.get());
+    }
+    const Texture* atlas = ctx.textures->get(atlas_key);
+    if (!atlas) return;  // atlas image not loaded yet
+
+    // Numeric options with JS defaults.
+    auto field_num = [&](std::string_view key, float fallback) -> float {
+        const Value* v = find_field(a, key);
+        if (!v || v->kind_case() != Value::kNumberValue) return fallback;
+        return static_cast<float>(v->number_value());
+    };
+    auto field_str = [&](std::string_view key,
+                         std::string_view fallback) -> std::string {
+        const Value* v = find_field(a, key);
+        if (!v || v->kind_case() != Value::kStringValue)
+            return std::string(fallback);
+        return v->string_value();
+    };
+    auto field_bool = [&](std::string_view key, bool fallback) -> bool {
+        const Value* v = find_field(a, key);
+        if (!v) return fallback;
+        if (v->kind_case() == Value::kBoolValue) return v->bool_value();
+        if (v->kind_case() == Value::kNumberValue) return v->number_value() != 0.0;
+        return fallback;
+    };
+
+    const float       size           = field_num("size",          24.f);
+    const float       letter_spacing = field_num("letterSpacing",  0.f);
+    const float       line_height    = field_num("lineHeight",     1.f);
+    const float       word_spacing   = field_num("wordSpacing",    1.f);
+    const float       tab_size       = field_num("tabSize",        4.f);
+    const float       it             = field_num("it",             0.f);
+    const float       thickness      = field_num("thickness",      0.f);
+    const float       width_limit    = field_num("width", 1e30f /*~Infinity*/);
+    const std::string align          = field_str("align",  "left");
+    const std::string valign         = field_str("valign", "top");
+    const bool        word_break     = field_bool("wordBreak", false);
+
+    const auto color_vec = as_floats(find_field(a, "color"));
+    float color[4] = { 1.f, 1.f, 1.f, 1.f };
+    if (color_vec.size() >= 4) {
+        color[0] = color_vec[0]; color[1] = color_vec[1];
+        color[2] = color_vec[2]; color[3] = color_vec[3];
+    }
+
+    const auto offset_vec = as_floats(find_field(a, "offset"));
+    float offset[2] = { 0.f, 0.f };
+    if (offset_vec.size() >= 2) {
+        offset[0] = offset_vec[0]; offset[1] = offset_vec[1];
+    }
+
+    // ---- 2. Helpers shared by layout + populate ---------------------------
+    // Resolve which loaded font owns this codepoint (returns nullptr +
+    // glyph=nullptr when the codepoint is in none of the requested fonts).
+    auto find_in_fonts = [&](int cp,
+                             const Font** out_font) -> const Glyph* {
+        for (const Font* f : fonts) {
+            if (const Glyph* g = f->find_glyph_by_id(cp)) {
+                if (out_font) *out_font = f;
+                return g;
+            }
+        }
+        if (out_font) *out_font = nullptr;
+        return nullptr;
+    };
+
+    // ---- 3. Layout pass ---------------------------------------------------
+    // Produce a list of lines, each carrying the glyphs to draw and
+    // the line's pixel width. Mirrors `layout()` in text.js.
+    struct LaidGlyph {
+        const Glyph* glyph;
+        const Font*  font;
+        float        x_in_line;
+    };
+    struct Line {
+        std::vector<LaidGlyph> glyphs;
+        float                  width = 0.f;
+    };
+    std::vector<Line> lines;
+    lines.emplace_back();
+
+    int   cursor      = 0;
+    int   word_cursor = 0;
+    float word_width  = 0.f;
+    const Font* prev_glyph_font = nullptr;
+    const Glyph* prev_glyph     = nullptr;
+
+    auto new_line = [&]() {
+        lines.emplace_back();
+        word_cursor = cursor;
+        word_width  = 0.f;
+        prev_glyph_font = nullptr;
+        prev_glyph      = nullptr;
+    };
+
+    while (cursor < static_cast<int>(text.size())) {
+        const unsigned char ch = static_cast<unsigned char>(text[cursor]);
+
+        // Newline: terminate current line.
+        if (ch == '\n' || ch == '\r') {
+            ++cursor;
+            new_line();
+            continue;
+        }
+
+        Line& line = lines.back();
+        float advance = 0.f;
+        bool  is_ws   = (ch == ' ' || ch == '\t');
+
+        if (is_ws) {
+            word_cursor = cursor + 1;
+            word_width  = 0.f;
+            const Font* fpri = fonts[0];
+            const float space_advance =
+                static_cast<float>(fpri->space_advance()) * size /
+                static_cast<float>(fpri->lineHeight() ? fpri->lineHeight() : 1);
+            if (ch == '\t') {
+                advance = word_spacing * tab_size * space_advance;
+            } else {
+                advance = word_spacing * space_advance;
+            }
+        } else {
+            const Font*  cf  = nullptr;
+            const Glyph* g   = find_in_fonts(static_cast<int>(ch), &cf);
+            if (!g) {
+                // Character not in any loaded font — drop silently.
+                // The JS backend throws here; we choose to be lenient
+                // because asset authors routinely omit code points they
+                // didn't expect to render.
+                ++cursor;
+                continue;
+            }
+            // Apply kerning if previous glyph is in same font.
+            if (cf == prev_glyph_font && prev_glyph != nullptr) {
+                const int kern_amt = cf->kerning(prev_glyph->id, g->id);
+                const float kern = static_cast<float>(kern_amt) * size /
+                                   static_cast<float>(cf->lineHeight()
+                                       ? cf->lineHeight() : 1);
+                line.width += kern;
+                word_width += kern;
+            }
+            line.glyphs.push_back({ g, cf, line.width });
+            advance = (letter_spacing + static_cast<float>(g->xadvance))
+                    * size /
+                      static_cast<float>(cf->lineHeight()
+                          ? cf->lineHeight() : 1);
+            prev_glyph_font = cf;
+            prev_glyph      = g;
+        }
+
+        line.width += advance;
+        word_width += advance;
+
+        // Wordwrap: only if width is finite.
+        if (line.width > width_limit && width_limit > 0.f) {
+            if (is_ws) {
+                line.width -= advance;
+                ++cursor;
+                new_line();
+                continue;
+            }
+            if (word_break && line.glyphs.size() > 1) {
+                line.width -= advance;
+                line.glyphs.pop_back();
+                new_line();
+                continue;
+            } else if (!word_break && word_width != line.width) {
+                // Roll back to the start of the current word and put
+                // it on a new line. We splice glyphs that started in
+                // this word off the line.
+                int n_to_remove = cursor - word_cursor + 1;
+                if (n_to_remove > static_cast<int>(line.glyphs.size())) {
+                    n_to_remove = static_cast<int>(line.glyphs.size());
+                }
+                line.glyphs.resize(line.glyphs.size() - static_cast<size_t>(n_to_remove));
+                cursor      = word_cursor;
+                line.width -= word_width;
+                new_line();
+                continue;
+            }
+        }
+        ++cursor;
+    }
+    // Drop a trailing empty line so a "foo\n" doesn't render an extra
+    // blank line below the text.
+    if (lines.back().width == 0.f && lines.back().glyphs.empty()) {
+        lines.pop_back();
+    }
+
+    // Count drawable glyphs (every laid glyph is drawable; whitespace
+    // never enters line.glyphs, see above).
+    size_t glyph_count = 0;
+    for (const auto& ln : lines) glyph_count += ln.glyphs.size();
+    if (glyph_count == 0) return;
+
+    // ---- 4. Build per-glyph quad buffers ---------------------------------
+    std::vector<float>    pos_buf;     // 4 verts × 2 floats = 8 / glyph
+    std::vector<float>    uv_buf;      // 4 verts × 2 floats = 8 / glyph
+    std::vector<uint32_t> idx_buf;     // 6 indices / glyph
+    pos_buf.reserve(glyph_count * 8);
+    uv_buf.reserve(glyph_count * 8);
+    idx_buf.reserve(glyph_count * 6);
+
+    // valign baseline. The JS code computes lines.length * size *
+    // lineHeight; we mirror that exactly.
+    const float total_height = static_cast<float>(lines.size()) * size * line_height;
+    float y_pen = 0.f;
+    if (valign == "center") {
+        y_pen = -total_height * 0.5f;
+    } else if (valign == "bottom") {
+        y_pen = -total_height;
+    }
+
+    uint32_t emitted_count = 0;
+    for (const auto& ln : lines) {
+        for (const auto& lg : ln.glyphs) {
+            const Glyph* g = lg.glyph;
+            const Font*  f = lg.font;
+
+            // Per-glyph horizontal pen.
+            float x_pen = lg.x_in_line;
+            if (align == "center") {
+                x_pen -= ln.width * 0.5f;
+            } else if (align == "right") {
+                x_pen -= ln.width;
+            }
+
+            const float scale = size /
+                static_cast<float>(f->lineHeight() ? f->lineHeight() : 1);
+            const float x = x_pen + static_cast<float>(g->xoffset) * scale;
+            const float y_offset = static_cast<float>(g->yoffset) * scale;
+            const float w = static_cast<float>(g->width)  * scale;
+            const float h = static_cast<float>(g->height) * scale;
+
+            // Glyph-local y baseline (per-line pen, NOT cumulative
+            // through the inner loop — matches JS's `oldy = y;
+            // y += yoffset; ... ; y = oldy;` reset).
+            const float gy = y_pen + y_offset;
+
+            // Position quad: TL, BL, TR, BR. JS layout is
+            //   [x, y+h, x, y, x+w, y+h, x+w, y]
+            // optionally skewed by `it*scale` on top corners.
+            const float skew = it * scale;
+            pos_buf.push_back(x + skew);  pos_buf.push_back(gy + h);  // TL
+            pos_buf.push_back(x);         pos_buf.push_back(gy);      // BL
+            pos_buf.push_back(x + w + skew); pos_buf.push_back(gy + h); // TR
+            pos_buf.push_back(x + w);     pos_buf.push_back(gy);      // BR
+
+            // UV quad — pair each geometry vertex with the matching
+            // glyph edge in the *visually* rendered atlas. Note that
+            // the textbox-local Y axis grows downward (JS does
+            // `y += size * lineHeight` to advance lines), and the
+            // `view = (vw/2, -vh/2)` divisor in the vertex shader
+            // negates Y to convert to GL NDC (Y up). Net effect on
+            // screen:
+            //   - the vertex at textbox-local (x, y+h)   ends up at
+            //     screen BOTTOM  → must sample glyph BOTTOM → v + vh
+            //   - the vertex at textbox-local (x, y)     ends up at
+            //     screen TOP     → must sample glyph TOP    → v
+            // Getting this wrong flips every glyph upside-down even
+            // though string layout and atlas indexing both look right
+            // (which is exactly what the M3.F.1 first pass did).
+            const float u  = g->u;
+            const float uw = g->uw;
+            const float v  = g->v;        // top edge of glyph in atlas
+            const float vh = g->vh;
+            // Vertex order matches the position quad above:
+            //   v0 = (x,   y+h)  → screen bottom → v + vh
+            //   v1 = (x,   y)    → screen top    → v
+            //   v2 = (x+w, y+h)  → screen bottom → v + vh
+            //   v3 = (x+w, y)    → screen top    → v
+            uv_buf.push_back(u);       uv_buf.push_back(v + vh);     // v0
+            uv_buf.push_back(u);       uv_buf.push_back(v);          // v1
+            uv_buf.push_back(u + uw);  uv_buf.push_back(v + vh);     // v2
+            uv_buf.push_back(u + uw);  uv_buf.push_back(v);          // v3
+
+            // Indices: same triangulation JS uses.
+            //   [i*4, i*4+2, i*4+1,  i*4+1, i*4+2, i*4+3]
+            const uint32_t b = emitted_count * 4;
+            idx_buf.push_back(b);     idx_buf.push_back(b + 2); idx_buf.push_back(b + 1);
+            idx_buf.push_back(b + 1); idx_buf.push_back(b + 2); idx_buf.push_back(b + 3);
+            ++emitted_count;
+        }
+        y_pen += size * line_height;
+    }
+
+    // ---- 5. Issue the draw -----------------------------------------------
+    glUseProgram(prog->id());
+
+    // Standard preamble — matches render_atomic's view/camera path.
+    if (const GLint loc = prog->uniform_location("view"); loc >= 0) {
+        glUniform2f(loc, ctx.view_w * 0.5f, -ctx.view_h * 0.5f);
+    }
+    if (const GLint loc = prog->uniform_location("camera"); loc >= 0) {
+        glUniform4f(loc, ctx.camera[0], ctx.camera[1],
+                         ctx.camera[2], ctx.camera[3]);
+    }
+    if (const GLint loc = prog->uniform_location("offset"); loc >= 0) {
+        glUniform2f(loc, offset[0], offset[1]);
+    }
+    if (const GLint loc = prog->uniform_location("color"); loc >= 0) {
+        glUniform4f(loc, color[0], color[1], color[2], color[3]);
+    }
+    if (const GLint loc = prog->uniform_location("thickness"); loc >= 0) {
+        glUniform1f(loc, thickness);
+    }
+    // unitRange comes from the *primary* font (JS uses fonts[0]).
+    if (const GLint loc = prog->uniform_location("unitRange"); loc >= 0) {
+        const Font* fpri = fonts[0];
+        glUniform2f(loc, fpri->unit_range_x(), fpri->unit_range_y());
+    }
+    // Bind atlas → tMap on TEXUNIT0.
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, atlas->id());
+    if (const GLint loc = prog->uniform_location("tMap"); loc >= 0) {
+        glUniform1i(loc, 0);
+    }
+
+    // Build a transient VAO + 2 VBOs + 1 EBO. Same lifecycle pattern
+    // as the texture branch — pooling is a future optimisation.
+    GLuint vao = 0, vbo_pos = 0, vbo_uv = 0, ebo = 0;
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    auto bind_vec2 = [&](const char* name,
+                         const float* data, size_t n_floats,
+                         GLuint& vbo_out) {
+        const GLint loc = prog->attribute_location(name);
+        if (loc < 0) return;
+        glGenBuffers(1, &vbo_out);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo_out);
+        glBufferData(GL_ARRAY_BUFFER,
+                     static_cast<GLsizeiptr>(n_floats * sizeof(float)),
+                     data, GL_STREAM_DRAW);
+        glEnableVertexAttribArray(static_cast<GLuint>(loc));
+        glVertexAttribPointer(static_cast<GLuint>(loc), 2, GL_FLOAT,
+                              GL_FALSE, 0, nullptr);
+    };
+    bind_vec2("position", pos_buf.data(), pos_buf.size(), vbo_pos);
+    bind_vec2("uv",       uv_buf.data(),  uv_buf.size(),  vbo_uv);
+
+    glGenBuffers(1, &ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                 static_cast<GLsizeiptr>(idx_buf.size() * sizeof(uint32_t)),
+                 idx_buf.data(), GL_STREAM_DRAW);
+
+    glDrawElements(GL_TRIANGLES,
+                   static_cast<GLsizei>(idx_buf.size()),
+                   GL_UNSIGNED_INT, nullptr);
+
+    // Tear down.
+    glBindBuffer(GL_ARRAY_BUFFER,         0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    if (vbo_pos) glDeleteBuffers(1, &vbo_pos);
+    if (vbo_uv)  glDeleteBuffers(1, &vbo_uv);
+    glDeleteBuffers(1, &ebo);
+    glDeleteVertexArrays(1, &vao);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 }  // namespace declgl

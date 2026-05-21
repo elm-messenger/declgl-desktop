@@ -7,6 +7,7 @@
 namespace declgl {
 
 class TextureRegistry;
+class FontRegistry;
 class FboPool;
 
 struct RenderContext {
@@ -34,6 +35,12 @@ struct RenderContext {
     // valid value (means: no textures registered yet, missing-name
     // lookups all return nullptr at the registry layer).
     const TextureRegistry* textures = nullptr;
+
+    // M3.F: fonts the walker may resolve when an atomic's `program` is
+    // `textbox`. Non-owning — owned by the engine. Null causes textbox
+    // draws to silently no-op (matches asset-not-yet-loaded behaviour
+    // for the JS backend's first-frame race).
+    const FontRegistry* fonts = nullptr;
 
     // M3.E: pool of offscreen palettes the walker uses when rendering
     // [GroupRenderable.effects] / [CompositeRenderable]. Non-owning;

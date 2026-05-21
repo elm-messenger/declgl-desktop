@@ -5,6 +5,7 @@
   "dependencies": [
     "sdl3",
     "protobuf",
-    "glm"
+    "glm",
+    "nlohmann-json"
   ]
 }
