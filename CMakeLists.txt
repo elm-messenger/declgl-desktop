@@ -107,91 +107,29 @@ set_target_properties(declgl PROPERTIES
 #
 #   1. libdeclgl.a (already produced above) — bundled first-party code.
 #   2. declgl_link_flags.sexp — third-party link flags as an S-expression
-#      that dune can splice into c_library_flags. We list each absl
-#      sub-archive vcpkg installs explicitly because (a) abseil's CMake
-#      target graph is unstable across versions and (b) dune's foreign-
-#      stub linker doesn't follow imported-target transitive deps on
-#      its own.
+#      that dune can splice into c_library_flags. A dedicated Python helper
+#      writes the file from the resolved vcpkg/build paths.
 #
 # The .sexp lives next to libdeclgl.a so the OCaml side can point at one
-# directory and find both. We always re-generate at configure time —
-# the contents are static once vcpkg has resolved.
+# directory and find both. We always re-generate it at configure time once
+# vcpkg has resolved.
 # ----------------------------------------------------------------------------
 set(_DECLGL_LINK_SEXP "${CMAKE_BINARY_DIR}/declgl_link_flags.sexp")
 set(_VCPKG_LIB        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib")
+set(_DECLGL_LINK_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/write_declgl_link_flags.py")
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-# Frameworks needed on macOS for SDL3 + GL (SDL3's static archive does
-# not pull these in; the user's exe linker resolves them).
-if(APPLE)
-    set(_DECLGL_FRAMEWORKS
-        "-framework Cocoa"
-        "-framework IOKit"
-        "-framework CoreVideo"
-        "-framework CoreAudio"
-        "-framework AudioToolbox"
-        "-framework CoreHaptics"
-        "-framework GameController"
-        "-framework Metal"
-        "-framework QuartzCore"
-        "-framework ForceFeedback"
-        "-framework Carbon"
-        "-framework UniformTypeIdentifiers"
-        "-framework OpenGL"
-        # SDL3 also pulls in camera + media subsystems on macOS:
-        "-framework AVFoundation"
-        "-framework CoreMedia"
-        "-framework CoreFoundation"
-        "-framework CoreGraphics"
-        "-framework CoreImage"
-        "-framework CoreText"
-        "-framework CoreServices"
-        "-framework CoreBluetooth"
-        "-framework Foundation"
-    )
-    set(_DECLGL_LINK_GROUP_START "")
-    set(_DECLGL_LINK_GROUP_END "")
-else()
-    set(_DECLGL_FRAMEWORKS "")
-    set(_DECLGL_LINK_GROUP_START "-Wl,--start-group")
-    set(_DECLGL_LINK_GROUP_END   "-Wl,--end-group")
-endif()
+set(_DECLGL_LINK_SCRIPT_ARGS
+    "${_DECLGL_LINK_SCRIPT}"
+    --vcpkg-lib "${_VCPKG_LIB}"
+    --build-dir "${CMAKE_BINARY_DIR}"
+    --output "${_DECLGL_LINK_SEXP}"
+    --os-name "${CMAKE_SYSTEM_NAME}"
+)
 
-# Build the absl sub-archive list by globbing what vcpkg installed. We
-# list them all because protobuf transitively depends on most of absl,
-# and trimming by hand is fragile.
-file(GLOB _ABSL_LIBS RELATIVE "${_VCPKG_LIB}" "${_VCPKG_LIB}/libabsl_*.a")
-set(_ABSL_LFLAGS "")
-foreach(_a IN LISTS _ABSL_LIBS)
-    string(REGEX REPLACE "^lib(.*)\\.a$" "\\1" _name "${_a}")
-    list(APPEND _ABSL_LFLAGS "-l${_name}")
-endforeach()
-
-# Compose the full sexp. -L paths come first so the -l names below
-# resolve. We also link C++ stdlib explicitly because dune's foreign
-# archive linker uses the C compiler driver by default.
-set(_SEXP_LINES "(")
-list(APPEND _SEXP_LINES "  -L${_VCPKG_LIB}")
-list(APPEND _SEXP_LINES "  -L${CMAKE_BINARY_DIR}")
-list(APPEND _SEXP_LINES "  -lprotobuf-lite")
-list(APPEND _SEXP_LINES "  -lSDL3")
-list(APPEND _SEXP_LINES "  -lutf8_range")
-list(APPEND _SEXP_LINES "  -lutf8_validity")
-if(_DECLGL_LINK_GROUP_START)
-    list(APPEND _SEXP_LINES "  ${_DECLGL_LINK_GROUP_START}")
-endif()
-foreach(_f IN LISTS _ABSL_LFLAGS)
-    list(APPEND _SEXP_LINES "  ${_f}")
-endforeach()
-if(_DECLGL_LINK_GROUP_END)
-    list(APPEND _SEXP_LINES "  ${_DECLGL_LINK_GROUP_END}")
-endif()
-foreach(_f IN LISTS _DECLGL_FRAMEWORKS)
-    list(APPEND _SEXP_LINES "  ${_f}")
-endforeach()
-list(APPEND _SEXP_LINES "  -lstdc++")
-list(APPEND _SEXP_LINES ")")
-
-string(REPLACE ";" "\n" _SEXP_TEXT "${_SEXP_LINES}")
-file(WRITE "${_DECLGL_LINK_SEXP}" "${_SEXP_TEXT}\n")
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" ${_DECLGL_LINK_SCRIPT_ARGS}
+    COMMAND_ERROR_IS_FATAL ANY
+)
 
 message(STATUS "[declgl] wrote dune link flags -> ${_DECLGL_LINK_SEXP}")
