@@ -47,170 +47,188 @@
 #include "transport_backend.pb.h"
 #include "transport_render.pb.h"
 
-namespace {
+namespace
+{
 
 // One global engine for the bridge. The JS backend doesn't support
 // multiple windows either.
-std::unique_ptr<declgl::Engine>& engine_storage() {
-    static std::unique_ptr<declgl::Engine> g;
-    return g;
+std::unique_ptr<declgl::Engine> &engine_storage()
+{
+	static std::unique_ptr<declgl::Engine> g;
+	return g;
 }
 
-declgl::Engine* engine() { return engine_storage().get(); }
+declgl::Engine *engine()
+{
+	return engine_storage().get();
+}
 
 // Cached pointers to the OCaml callbacks. Resolved lazily when [StartRegl]
 // is processed, by which time user-side Callback.registers have run.
 struct Callbacks {
-    const value* update             = nullptr;
-    const value* event              = nullptr;
-    const value* view               = nullptr;
-    const value* recv_regl_cmd_pb   = nullptr;
-    const value* recv_audio_msg_pb  = nullptr;
+	const value *update = nullptr;
+	const value *event = nullptr;
+	const value *view = nullptr;
+	const value *recv_regl_cmd_pb = nullptr;
+	const value *recv_audio_msg_pb = nullptr;
 
-    bool resolve() {
-        update            = caml_named_value("declgl_app_update");
-        event             = caml_named_value("declgl_app_event");
-        view              = caml_named_value("declgl_app_view");
-        recv_regl_cmd_pb  = caml_named_value("declgl_app_recv_regl_cmd_pb");
-        recv_audio_msg_pb = caml_named_value("declgl_app_recv_audio_msg_pb");
-        if (!update || !event || !view) {
-            std::fprintf(stderr,
-                         "[declgl/bridge] missing required Callback.register: "
-                         "update=%p event=%p view=%p\n",
-                         (void*)update, (void*)event, (void*)view);
-            return false;
-        }
-        return true;
-    }
+	bool resolve()
+	{
+		update = caml_named_value("declgl_app_update");
+		event = caml_named_value("declgl_app_event");
+		view = caml_named_value("declgl_app_view");
+		recv_regl_cmd_pb =
+			caml_named_value("declgl_app_recv_regl_cmd_pb");
+		recv_audio_msg_pb =
+			caml_named_value("declgl_app_recv_audio_msg_pb");
+		if (!update || !event || !view) {
+			std::fprintf(
+				stderr,
+				"[declgl/bridge] missing required Callback.register: "
+				"update=%p event=%p view=%p\n",
+				(void *)update, (void *)event, (void *)view);
+			return false;
+		}
+		return true;
+	}
 };
 
-Callbacks& callbacks() {
-    static Callbacks cb;
-    return cb;
+Callbacks &callbacks()
+{
+	static Callbacks cb;
+	return cb;
 }
 
-bool& loop_running_flag() {
-    static bool running = false;
-    return running;
+bool &loop_running_flag()
+{
+	static bool running = false;
+	return running;
 }
 
 // SDL → protobuf event encoder. Returns true if `out` was filled.
-bool sdl_event_to_pb(const SDL_Event& ev,
-                     mlregl::transport::backend::Event* out) {
-    using mlregl::transport::backend::MouseEvent;
-    using mlregl::transport::backend::MouseMoveEvent;
-    using mlregl::transport::backend::KeyboardEvent;
-    switch (ev.type) {
-        case SDL_EVENT_MOUSE_BUTTON_DOWN: {
-            MouseEvent m;
-            m.set_button(static_cast<uint32_t>(ev.button.button));
-            m.set_x(ev.button.x);
-            m.set_y(ev.button.y);
-            *out->mutable_mouse_down() = m;
-            return true;
-        }
-        case SDL_EVENT_MOUSE_BUTTON_UP: {
-            MouseEvent m;
-            m.set_button(static_cast<uint32_t>(ev.button.button));
-            m.set_x(ev.button.x);
-            m.set_y(ev.button.y);
-            *out->mutable_mouse_up() = m;
-            return true;
-        }
-        case SDL_EVENT_MOUSE_MOTION: {
-            MouseMoveEvent m;
-            m.set_x(ev.motion.x);
-            m.set_y(ev.motion.y);
-            *out->mutable_mouse_move() = m;
-            return true;
-        }
-        case SDL_EVENT_KEY_DOWN: {
-            KeyboardEvent k;
-            const char* name = SDL_GetKeyName(ev.key.key);
-            k.set_code(name ? name : "");
-            *out->mutable_key_down() = k;
-            return true;
-        }
-        case SDL_EVENT_KEY_UP: {
-            KeyboardEvent k;
-            const char* name = SDL_GetKeyName(ev.key.key);
-            k.set_code(name ? name : "");
-            *out->mutable_key_up() = k;
-            return true;
-        }
-        default:
-            return false;
-    }
+bool sdl_event_to_pb(const SDL_Event &ev,
+		     mlregl::transport::backend::Event *out)
+{
+	using mlregl::transport::backend::KeyboardEvent;
+	using mlregl::transport::backend::MouseEvent;
+	using mlregl::transport::backend::MouseMoveEvent;
+	switch (ev.type) {
+	case SDL_EVENT_MOUSE_BUTTON_DOWN: {
+		MouseEvent m;
+		m.set_button(static_cast<uint32_t>(ev.button.button));
+		m.set_x(ev.button.x);
+		m.set_y(ev.button.y);
+		*out->mutable_mouse_down() = m;
+		return true;
+	}
+	case SDL_EVENT_MOUSE_BUTTON_UP: {
+		MouseEvent m;
+		m.set_button(static_cast<uint32_t>(ev.button.button));
+		m.set_x(ev.button.x);
+		m.set_y(ev.button.y);
+		*out->mutable_mouse_up() = m;
+		return true;
+	}
+	case SDL_EVENT_MOUSE_MOTION: {
+		MouseMoveEvent m;
+		m.set_x(ev.motion.x);
+		m.set_y(ev.motion.y);
+		*out->mutable_mouse_move() = m;
+		return true;
+	}
+	case SDL_EVENT_KEY_DOWN: {
+		KeyboardEvent k;
+		const char *name = SDL_GetKeyName(ev.key.key);
+		k.set_code(name ? name : "");
+		*out->mutable_key_down() = k;
+		return true;
+	}
+	case SDL_EVENT_KEY_UP: {
+		KeyboardEvent k;
+		const char *name = SDL_GetKeyName(ev.key.key);
+		k.set_code(name ? name : "");
+		*out->mutable_key_up() = k;
+		return true;
+	}
+	default:
+		return false;
+	}
 }
 
 // Pump SDL events. Returns false if the loop should exit.
-bool pump_events_and_dispatch(Callbacks& cb) {
-    SDL_Event ev;
-    while (SDL_PollEvent(&ev)) {
-        if (ev.type == SDL_EVENT_QUIT) return false;
-        if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
-            return false;
+bool pump_events_and_dispatch(Callbacks &cb)
+{
+	SDL_Event ev;
+	while (SDL_PollEvent(&ev)) {
+		if (ev.type == SDL_EVENT_QUIT)
+			return false;
+		if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
+			return false;
 
-        mlregl::transport::backend::Event pb;
-        if (!sdl_event_to_pb(ev, &pb)) continue;
+		mlregl::transport::backend::Event pb;
+		if (!sdl_event_to_pb(ev, &pb))
+			continue;
 
-        std::string out;
-        if (!pb.SerializeToString(&out)) continue;
+		std::string out;
+		if (!pb.SerializeToString(&out))
+			continue;
 
-        CAMLparam0();
-        CAMLlocal1(v_bytes);
-        v_bytes = caml_alloc_initialized_string(out.size(), out.data());
-        caml_callback(*cb.event, v_bytes);
-        CAMLdrop;
-    }
-    return true;
+		CAMLparam0();
+		CAMLlocal1(v_bytes);
+		v_bytes = caml_alloc_initialized_string(out.size(), out.data());
+		caml_callback(*cb.event, v_bytes);
+		CAMLdrop;
+	}
+	return true;
 }
 
 // One frame: tick → update → view → render → swap. Returns false to exit.
-bool drive_one_frame(Callbacks& cb,
-                     SDL_Window* window,
-                     Uint64 start_ticks) {
-    if (!pump_events_and_dispatch(cb)) return false;
+bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
+{
+	if (!pump_events_and_dispatch(cb))
+		return false;
 
-    const double now_ms = static_cast<double>(SDL_GetTicks() - start_ticks);
+	const double now_ms = static_cast<double>(SDL_GetTicks() - start_ticks);
 
-    {
-        CAMLparam0();
-        caml_callback(*cb.update, caml_copy_double(now_ms));
-        CAMLdrop;
-    }
+	{
+		CAMLparam0();
+		caml_callback(*cb.update, caml_copy_double(now_ms));
+		CAMLdrop;
+	}
 
-    {
-        CAMLparam0();
-        CAMLlocal1(v_view);
-        v_view = caml_callback(*cb.view, Val_unit);
-        if (Is_block(v_view)) {
-            // Some bytes
-            value v_bytes = Field(v_view, 0);
-            const char*  data = (const char*)Bytes_val(v_bytes);
-            const size_t len  = caml_string_length(v_bytes);
+	{
+		CAMLparam0();
+		CAMLlocal1(v_view);
+		v_view = caml_callback(*cb.view, Val_unit);
+		if (Is_block(v_view)) {
+			// Some bytes
+			value v_bytes = Field(v_view, 0);
+			const char *data = (const char *)Bytes_val(v_bytes);
+			const size_t len = caml_string_length(v_bytes);
 
-            mlregl::transport::render::Renderable r;
-            if (r.ParseFromArray(data, static_cast<int>(len))) {
-                static int frame_log = 0;
-                if ((frame_log++ % 60) == 0) {
-                    std::printf(
-                        "[declgl/bridge] view: Renderable kind=%d (frame %d)\n",
-                        static_cast<int>(r.kind_case()), frame_log - 1);
-                }
-                // Hand off to the engine for the actual draw calls.
-                engine()->render(r);
-            } else {
-                std::fprintf(stderr,
-                             "[declgl/bridge] view: parse failed (%zu B)\n",
-                             len);
-            }
-        }
-        CAMLdrop;
-    }
+			mlregl::transport::render::Renderable r;
+			if (r.ParseFromArray(data, static_cast<int>(len))) {
+				static int frame_log = 0;
+				if ((frame_log++ % 60) == 0) {
+					std::printf(
+						"[declgl/bridge] view: Renderable kind=%d (frame %d)\n",
+						static_cast<int>(r.kind_case()),
+						frame_log - 1);
+				}
+				// Hand off to the engine for the actual draw calls.
+				engine()->render(r);
+			} else {
+				std::fprintf(
+					stderr,
+					"[declgl/bridge] view: parse failed (%zu B)\n",
+					len);
+			}
+		}
+		CAMLdrop;
+	}
 
-    SDL_GL_SwapWindow(window);
-    return true;
+	SDL_GL_SwapWindow(window);
+	return true;
 }
 
 // Open the window + GL ctx and run the per-frame loop. Returns when the
@@ -224,25 +242,29 @@ bool drive_one_frame(Callbacks& cb,
 // commands in the same batch, e.g. LoadTexture, see GL state) rather
 // than after, so [dispatch_batch] handles that on first sight of
 // StartRegl.
-void enter_run_loop() {
-    if (loop_running_flag()) {
-        std::fprintf(stderr, "[declgl/bridge] StartRegl while loop running; ignoring\n");
-        return;
-    }
+void enter_run_loop()
+{
+	if (loop_running_flag()) {
+		std::fprintf(
+			stderr,
+			"[declgl/bridge] StartRegl while loop running; ignoring\n");
+		return;
+	}
 
-    Callbacks& cb = callbacks();
-    if (!cb.resolve()) return;
+	Callbacks &cb = callbacks();
+	if (!cb.resolve())
+		return;
 
-    SDL_Window* window = engine()->sdl_window();
-    Uint64 start_ticks = SDL_GetTicks();
+	SDL_Window *window = engine()->sdl_window();
+	Uint64 start_ticks = SDL_GetTicks();
 
-    loop_running_flag() = true;
-    while (drive_one_frame(cb, window, start_ticks)) {
-        // Loop body intentionally empty — drive_one_frame does it all.
-    }
-    loop_running_flag() = false;
+	loop_running_flag() = true;
+	while (drive_one_frame(cb, window, start_ticks)) {
+		// Loop body intentionally empty — drive_one_frame does it all.
+	}
+	loop_running_flag() = false;
 
-    engine()->shutdown();
+	engine()->shutdown();
 }
 
 // Process every command in the decoded batch. Returns true iff the
@@ -250,117 +272,125 @@ void enter_run_loop() {
 // the caller should then enter the run loop. StartRegl is dispatched
 // in-order: we bring up the window the moment we see it so any later
 // command in the same batch (e.g. LoadTexture) lands on a live GL ctx.
-bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch& batch) {
-    using namespace mlregl::transport::backend;
-    bool need_loop = false;
-    for (const BackendCommand& cmd : batch.commands()) {
-        switch (cmd.kind_case()) {
-            case BackendCommand::kStartRegl:
-                if (!loop_running_flag() && !need_loop) {
-                    if (engine()->init_window_and_gl(cmd.start_regl())) {
-                        need_loop = true;
-                    } else {
-                        std::fprintf(stderr,
-                                     "[declgl/bridge] init_window_and_gl failed: %s\n",
-                                     declgl::last_error());
-                        return false;
-                    }
-                } else {
-                    std::fprintf(stderr,
-                                 "[declgl/bridge] duplicate StartRegl ignored\n");
-                }
-                break;
-            // All other command kinds are forwarded to the engine for its
-            // existing decode-and-log handling. Once M3+ lands the engine
-            // gets real implementations.
-            case BackendCommand::kConfigRegl:
-            case BackendCommand::kLoadTexture:
-            case BackendCommand::kCreateProgram:
-            case BackendCommand::kLoadFont:
-            case BackendCommand::kLoadAudio:
-                engine()->dispatch_backend_command(cmd);
-                break;
-            case BackendCommand::KIND_NOT_SET:
-                break;
-        }
-    }
-    return need_loop;
+bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch)
+{
+	using namespace mlregl::transport::backend;
+	bool need_loop = false;
+	for (const BackendCommand &cmd : batch.commands()) {
+		switch (cmd.kind_case()) {
+		case BackendCommand::kStartRegl:
+			if (!loop_running_flag() && !need_loop) {
+				if (engine()->init_window_and_gl(
+					    cmd.start_regl())) {
+					need_loop = true;
+				} else {
+					std::fprintf(
+						stderr,
+						"[declgl/bridge] init_window_and_gl failed: %s\n",
+						declgl::last_error());
+					return false;
+				}
+			} else {
+				std::fprintf(
+					stderr,
+					"[declgl/bridge] duplicate StartRegl ignored\n");
+			}
+			break;
+
+		case BackendCommand::KIND_NOT_SET:
+			break;
+		default:
+			// All other command kinds are forwarded to the engine for its
+			// existing decode-and-log handling. Once M3+ lands the engine
+			// gets real implementations.
+			engine()->dispatch_backend_command(cmd);
+			break;
+		}
+	}
+	return need_loop;
 }
 
-}  // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 // OCaml-callable primitives
 // ---------------------------------------------------------------------------
 
-extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes) {
-    CAMLparam1(v_bytes);
+extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
+{
+	CAMLparam1(v_bytes);
 
-    // Lazily create the engine on the very first ship — well before any
-    // window/GL context exists. The engine just holds decoder state at
-    // this point; window+GL come up only when StartRegl is processed.
-    if (!engine()) {
-        engine_storage() = std::make_unique<declgl::Engine>();
+	// Lazily create the engine on the very first ship — well before any
+	// window/GL context exists. The engine just holds decoder state at
+	// this point; window+GL come up only when StartRegl is processed.
+	if (!engine()) {
+		engine_storage() = std::make_unique<declgl::Engine>();
 
-        // Wire the BackendEvent sink so the engine can post back to
-        // OCaml (TextureLoaded, FontLoaded, ProgramCreated, ...). The
-        // sink is engine-side opaque (`function<void(bytes,len)>`); we
-        // resolve `recv_regl_cmd_pb` lazily inside the closure because
-        // the user-side `Callback.register` may not have run yet at
-        // engine-construction time.
-        engine()->set_event_sink(
-            [](const uint8_t* bytes, std::size_t len) {
-                const value* recv = caml_named_value("declgl_app_recv_regl_cmd_pb");
-                if (!recv) {
-                    std::fprintf(stderr,
-                                 "[declgl/bridge] BackendEvent dropped: "
-                                 "callback 'declgl_app_recv_regl_cmd_pb' not registered\n");
-                    return;
-                }
-                CAMLparam0();
-                CAMLlocal1(v_bytes);
-                v_bytes = caml_alloc_initialized_string(
-                    len, reinterpret_cast<const char*>(bytes));
-                caml_callback(*recv, v_bytes);
-                CAMLdrop;
-            });
-    }
+		// Wire the BackendEvent sink so the engine can post back to
+		// OCaml (TextureLoaded, FontLoaded, ProgramCreated, ...). The
+		// sink is engine-side opaque (`function<void(bytes,len)>`); we
+		// resolve `recv_regl_cmd_pb` lazily inside the closure because
+		// the user-side `Callback.register` may not have run yet at
+		// engine-construction time.
+		engine()->set_event_sink([](const uint8_t *bytes,
+					    std::size_t len) {
+			const value *recv =
+				caml_named_value("declgl_app_recv_regl_cmd_pb");
+			if (!recv) {
+				std::fprintf(
+					stderr,
+					"[declgl/bridge] BackendEvent dropped: "
+					"callback 'declgl_app_recv_regl_cmd_pb' not registered\n");
+				return;
+			}
+			CAMLparam0();
+			CAMLlocal1(v_bytes);
+			v_bytes = caml_alloc_initialized_string(
+				len, reinterpret_cast<const char *>(bytes));
+			caml_callback(*recv, v_bytes);
+			CAMLdrop;
+		});
+	}
 
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(Bytes_val(v_bytes));
-    const size_t   n = caml_string_length(v_bytes);
+	const uint8_t *p =
+		reinterpret_cast<const uint8_t *>(Bytes_val(v_bytes));
+	const size_t n = caml_string_length(v_bytes);
 
-    mlregl::transport::backend::BackendCommandBatch batch;
-    if (!batch.ParseFromArray(p, static_cast<int>(n))) {
-        std::fprintf(stderr,
-                     "[declgl/bridge] BackendCommandBatch parse failed (%zu B)\n",
-                     n);
-        CAMLreturn(Val_unit);
-    }
+	mlregl::transport::backend::BackendCommandBatch batch;
+	if (!batch.ParseFromArray(p, static_cast<int>(n))) {
+		std::fprintf(
+			stderr,
+			"[declgl/bridge] BackendCommandBatch parse failed (%zu B)\n",
+			n);
+		CAMLreturn(Val_unit);
+	}
 
-    const bool started = dispatch_batch(batch);
-    if (started && !loop_running_flag()) {
-        // We're (re-)entering the loop. This call only returns when the
-        // user closes the window. Inside the loop, OCaml callbacks may
-        // themselves call back into declgl_ship_backend_cmd (e.g. the
-        // user's update returns more commands) — that's fine, dispatch
-        // is reentrant since it doesn't touch the loop_running_flag
-        // when no StartRegl is present.
-        enter_run_loop();
-    }
+	const bool started = dispatch_batch(batch);
+	if (started && !loop_running_flag()) {
+		// We're (re-)entering the loop. This call only returns when the
+		// user closes the window. Inside the loop, OCaml callbacks may
+		// themselves call back into declgl_ship_backend_cmd (e.g. the
+		// user's update returns more commands) — that's fine, dispatch
+		// is reentrant since it doesn't touch the loop_running_flag
+		// when no StartRegl is present.
+		enter_run_loop();
+	}
 
-    CAMLreturn(Val_unit);
+	CAMLreturn(Val_unit);
 }
 
-extern "C" CAMLprim value declgl_ship_audio_cmd(value v_bytes) {
-    CAMLparam1(v_bytes);
+extern "C" CAMLprim value declgl_ship_audio_cmd(value v_bytes)
+{
+	CAMLparam1(v_bytes);
 
-    if (!engine()) {
-        engine_storage() = std::make_unique<declgl::Engine>();
-    }
+	if (!engine()) {
+		engine_storage() = std::make_unique<declgl::Engine>();
+	}
 
-    const uint8_t* p = reinterpret_cast<const uint8_t*>(Bytes_val(v_bytes));
-    const size_t   n = caml_string_length(v_bytes);
-    engine()->exec_audio_cmd(p, n);
+	const uint8_t *p =
+		reinterpret_cast<const uint8_t *>(Bytes_val(v_bytes));
+	const size_t n = caml_string_length(v_bytes);
+	engine()->exec_audio_cmd(p, n);
 
-    CAMLreturn(Val_unit);
+	CAMLreturn(Val_unit);
 }

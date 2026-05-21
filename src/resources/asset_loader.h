@@ -57,109 +57,128 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 #include "resources/image_decoder.h"
 
-namespace declgl {
+namespace declgl
+{
 
 class Font;
 
 // What kind of asset a job represents. Drives the worker's decode
 // strategy and the GL-thread drain's upload + register logic.
 enum class AssetKind {
-    Texture,
-    Font,
+	Texture,
+	Font,
 };
 
 // One job submitted by the GL thread to the worker.
 struct DecodeJob {
-    AssetKind   kind = AssetKind::Texture;
+	AssetKind kind = AssetKind::Texture;
 
-    // Logical name used to register the asset (e.g. "enemy" or
-    // "custom"). Round-trips back into the corresponding _loaded event.
-    std::string name;
+	// Logical name used to register the asset (e.g. "enemy" or
+	// "custom"). Round-trips back into the corresponding _loaded event.
+	std::string name;
 
-    // For Texture: the image file on disk.
-    // For Font:    the atlas PNG on disk.
-    std::string image_url;
+	// For Texture: the image file on disk.
+	// For Font:    the atlas PNG on disk.
+	std::string image_url;
 
-    // Font only: the BMFont JSON file on disk.
-    std::string json_url;
+	// Font only: the BMFont JSON file on disk.
+	std::string json_url;
 
-    // Texture only: optional crop region (zeros = full image).
-    ImageCrop   crop{};
+	// Texture only: optional crop region (zeros = full image).
+	ImageCrop crop{};
 
-    // Texture only: should the worker premultiply RGB by alpha after
-    // decode? Forced false for Font (SDF data must be linear). Mirrors
-    // the LoadTexture proto's negated `no_premultiply_alpha` flag (the
-    // negation is unwound by the engine before enqueueing).
-    bool        premultiply_alpha = true;
+	// Texture only: should the worker premultiply RGB by alpha after
+	// decode? Forced false for Font (SDF data must be linear). Mirrors
+	// the LoadTexture proto's negated `no_premultiply_alpha` flag (the
+	// negation is unwound by the engine before enqueueing).
+	bool premultiply_alpha = true;
 
-    // Texture only: filter / mipmap selections (resolved at upload
-    // time on the GL thread). Forwarded verbatim through the worker.
-    int         min_filter_enum   = 0;  // proto TextureMinOption
-    int         mag_filter_enum   = 0;  // proto TextureMagOption
+	// Texture only: filter / mipmap selections (resolved at upload
+	// time on the GL thread). Forwarded verbatim through the worker.
+	int min_filter_enum = 0; // proto TextureMinOption
+	int mag_filter_enum = 0; // proto TextureMagOption
 };
 
 // What the worker hands back to the GL thread once the job is done.
 struct ReadyAsset {
-    AssetKind   kind = AssetKind::Texture;
-    std::string name;
-    std::string image_url;     // also serves as the texture-registry key for fonts
+	AssetKind kind = AssetKind::Texture;
+	std::string name;
+	std::string
+		image_url; // also serves as the texture-registry key for fonts
 
-    // Empty on success; short human-readable explanation on failure.
-    std::string error;
+	// Empty on success; short human-readable explanation on failure.
+	std::string error;
 
-    // Decoded image (always present on success, regardless of kind —
-    // for fonts this is the atlas atlas RGBA8). On failure, [.ok()] is
-    // false.
-    DecodedImage image;
+	// Decoded image (always present on success, regardless of kind —
+	// for fonts this is the atlas atlas RGBA8). On failure, [.ok()] is
+	// false.
+	DecodedImage image;
 
-    // Font-only: the parsed [Font]. nullptr for texture jobs and for
-    // failed font jobs.
-    std::unique_ptr<Font> font;
+	// Font-only: the parsed [Font]. nullptr for texture jobs and for
+	// failed font jobs.
+	std::unique_ptr<Font> font;
 
-    // Echo of the job's filter selections (texture only).
-    int  min_filter_enum   = 0;
-    int  mag_filter_enum   = 0;
-    bool premultiply_alpha = true;
+	// Echo of the job's filter selections (texture only).
+	int min_filter_enum = 0;
+	int mag_filter_enum = 0;
+	bool premultiply_alpha = true;
 };
 
 class AssetLoader {
-public:
-    AssetLoader();
-    ~AssetLoader();
+    public:
+	AssetLoader();
+	~AssetLoader();
 
-    AssetLoader(const AssetLoader&)            = delete;
-    AssetLoader& operator=(const AssetLoader&) = delete;
+	AssetLoader(const AssetLoader &) = delete;
+	AssetLoader &operator=(const AssetLoader &) = delete;
 
-    // Push a new job. Returns immediately. Wake the worker if it was
-    // idle. Safe to call from the GL thread.
-    void enqueue(DecodeJob job);
+	// Push a new job. Returns immediately. Wake the worker if it was
+	// idle. Safe to call from the GL thread.
+	void enqueue(DecodeJob job);
 
-    // Pop up to [max_items] ready assets in FIFO order. Returns the
-    // number actually moved into [out]. Bounded to avoid one-frame
-    // hitches when many large assets land at once.
-    std::size_t drain_ready(std::vector<ReadyAsset>& out,
-                            std::size_t              max_items);
+	// Pop up to [max_items] ready assets in FIFO order. Returns the
+	// number actually moved into [out]. Bounded to avoid one-frame
+	// hitches when many large assets land at once.
+	std::size_t drain_ready(std::vector<ReadyAsset> &out,
+				std::size_t max_items);
 
-    // Optional: stop the worker proactively. Called automatically by
-    // the destructor; engine shutdown calls it explicitly so the
-    // worker doesn't outlive the GL context.
-    void stop();
+	// Drop any pending or ready jobs matching [kind] + [name]. Called
+	// from the engine's UnloadTexture / UnloadFont path so that an
+	// unload arriving while a load is still in flight (worker hasn't
+	// run yet, or worker is done but GL hasn't drained yet) doesn't
+	// result in a zombie texture being uploaded after the user thinks
+	// it's gone. Texture identity is [name]; font identity is [name]
+	// (its atlas texture lives in TextureRegistry under image_url and
+	// is unregistered separately by the engine).
+	//
+	// Note: this can't cancel a job that the worker is *currently*
+	// running. That job will still complete, push to [ready_queue_],
+	// and then be dropped on the next [drain_ready] thanks to the
+	// ready-queue sweep below. Net result: zero leaks, at most one
+	// wasted decode.
+	void cancel_pending(AssetKind kind, std::string_view name);
 
-private:
-    void worker_main();
-    void process(DecodeJob& job, ReadyAsset& out);
+	// Optional: stop the worker proactively. Called automatically by
+	// the destructor; engine shutdown calls it explicitly so the
+	// worker doesn't outlive the GL context.
+	void stop();
 
-    std::thread             worker_;
-    std::mutex              mu_;
-    std::condition_variable cv_;
-    std::deque<DecodeJob>   decode_queue_;
-    std::deque<ReadyAsset>  ready_queue_;
-    std::atomic<bool>       stop_{false};
+    private:
+	void worker_main();
+	void process(DecodeJob &job, ReadyAsset &out);
+
+	std::thread worker_;
+	std::mutex mu_;
+	std::condition_variable cv_;
+	std::deque<DecodeJob> decode_queue_;
+	std::deque<ReadyAsset> ready_queue_;
+	std::atomic<bool> stop_{ false };
 };
 
-}  // namespace declgl
+} // namespace declgl
