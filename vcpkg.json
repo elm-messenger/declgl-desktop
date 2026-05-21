@@ -4,6 +4,7 @@
   "description": "C++/SDL3/OpenGL 3.3 desktop backend for the ml-regl OCaml frontend.",
   "dependencies": [
     "protobuf",
+    "sdl3",
     "glm",
     "nlohmann-json"
   ]
