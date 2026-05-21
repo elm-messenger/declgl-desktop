@@ -8,6 +8,9 @@
 #include "gpu/program_registry.h"
 #include "renderer/render_context.h"
 #include "renderer/renderable_walker.h"
+#include "resources/image_decoder.h"
+#include "resources/texture.h"
+#include "resources/texture_registry.h"
 #include "transport_audio.pb.h"
 #include "transport_backend.pb.h"
 
@@ -36,6 +39,40 @@ const char* describe_min(mlregl::transport::backend::TextureMinOption m) {
 const char* describe_mag(mlregl::transport::backend::TextureMagOption m) {
     using M = mlregl::transport::backend::TextureMagOption;
     return m == M::TEXTURE_MAG_OPTION_NEAREST ? "NEAREST" : "LINEAR";
+}
+
+// Map proto-level filter enums → engine-side [TextureFilter].
+TextureFilter to_filter_min(mlregl::transport::backend::TextureMinOption m) {
+    using M = mlregl::transport::backend::TextureMinOption;
+    switch (m) {
+        case M::TEXTURE_MIN_OPTION_NEAREST:                return TextureFilter::Nearest;
+        case M::TEXTURE_MIN_OPTION_LINEAR:                 return TextureFilter::Linear;
+        case M::TEXTURE_MIN_OPTION_NEAREST_MIPMAP_NEAREST: return TextureFilter::NearestMipmapNearest;
+        case M::TEXTURE_MIN_OPTION_LINEAR_MIPMAP_NEAREST:  return TextureFilter::LinearMipmapNearest;
+        case M::TEXTURE_MIN_OPTION_NEAREST_MIPMAP_LINEAR:  return TextureFilter::NearestMipmapLinear;
+        case M::TEXTURE_MIN_OPTION_LINEAR_MIPMAP_LINEAR:   return TextureFilter::LinearMipmapLinear;
+        default:                                           return TextureFilter::Linear;
+    }
+}
+
+TextureFilter to_filter_mag(mlregl::transport::backend::TextureMagOption m) {
+    using M = mlregl::transport::backend::TextureMagOption;
+    return m == M::TEXTURE_MAG_OPTION_NEAREST ? TextureFilter::Nearest
+                                              : TextureFilter::Linear;
+}
+
+// True iff [m] is one of the four mipmap minification modes.
+bool min_filter_uses_mipmaps(mlregl::transport::backend::TextureMinOption m) {
+    using M = mlregl::transport::backend::TextureMinOption;
+    switch (m) {
+        case M::TEXTURE_MIN_OPTION_NEAREST_MIPMAP_NEAREST:
+        case M::TEXTURE_MIN_OPTION_LINEAR_MIPMAP_NEAREST:
+        case M::TEXTURE_MIN_OPTION_NEAREST_MIPMAP_LINEAR:
+        case M::TEXTURE_MIN_OPTION_LINEAR_MIPMAP_LINEAR:
+            return true;
+        default:
+            return false;
+    }
 }
 
 }  // namespace
@@ -152,6 +189,7 @@ bool Engine::init_window_and_gl(
     // These all need an active GL context, so we construct them here
     // rather than in [init_decoders_only].
     programs_   = std::make_unique<ProgramRegistry>();
+    textures_   = std::make_unique<TextureRegistry>();
     render_ctx_ = std::make_unique<RenderContext>();
     walker_     = std::make_unique<RenderableWalker>(*programs_);
 
@@ -231,20 +269,84 @@ void Engine::dispatch_backend_command(
     switch (cmd.kind_case()) {
         case BackendCommand::kLoadTexture: {
             const auto& lt = cmd.load_texture();
-            std::printf("[declgl] load_texture name=%s url=%s",
-                        lt.name().c_str(), lt.url().c_str());
+
+            // Resolve filter / crop options (proto defaults if absent).
+            using ProtoMin = mlregl::transport::backend::TextureMinOption;
+            using ProtoMag = mlregl::transport::backend::TextureMagOption;
+            ProtoMin min_opt = ProtoMin::TEXTURE_MIN_OPTION_LINEAR;
+            ProtoMag mag_opt = ProtoMag::TEXTURE_MAG_OPTION_LINEAR;
+            ImageCrop crop{};
             if (lt.has_options()) {
                 const auto& o = lt.options();
-                std::printf(" mag=%s min=%s",
-                            describe_mag(o.mag()),
-                            describe_min(o.min()));
+                min_opt = o.min();
+                mag_opt = o.mag();
                 if (o.has_crop()) {
                     const auto& c = o.crop();
-                    std::printf(" crop=(%d,%d,%dx%d)",
-                                c.x(), c.y(), c.width(), c.height());
+                    crop.x      = c.x();
+                    crop.y      = c.y();
+                    crop.width  = c.width();
+                    crop.height = c.height();
                 }
             }
+
+            std::printf("[declgl] load_texture name=%s url=%s mag=%s min=%s",
+                        lt.name().c_str(), lt.url().c_str(),
+                        describe_mag(mag_opt), describe_min(min_opt));
+            if (crop.width > 0 && crop.height > 0) {
+                std::printf(" crop=(%d,%d,%dx%d)",
+                            crop.x, crop.y, crop.width, crop.height);
+            }
             std::printf("\n");
+
+            // Helper that encodes the failure event and ships it.
+            auto fail = [&](const char* why) {
+                std::fprintf(stderr,
+                             "[declgl] load_texture '%s' failed: %s\n",
+                             lt.name().c_str(), why);
+                BackendEvent ev;
+                ev.mutable_texture_loadfail()->set_name(lt.name());
+                ship_event(ev);
+            };
+
+            if (!textures_) {
+                // Pre-StartRegl: no GL context yet, so we can't upload.
+                // Mirror the JS backend's silent-tolerate-of-pre-start
+                // by failing rather than crashing.
+                fail("texture registry not initialized (no StartRegl yet?)");
+                break;
+            }
+
+            // Filesystem-only URL handling per design — the proto's
+            // [url] field is a path relative to the working directory
+            // (or absolute). No data: URIs, no http(s) fetching.
+            DecodedImage img = decode_image_file(lt.url(), crop);
+            if (!img.ok()) {
+                fail("decode_image_file");
+                break;
+            }
+
+            const bool gen_mipmaps = min_filter_uses_mipmaps(min_opt);
+
+            auto tex = std::make_unique<Texture>();
+            if (!tex->upload_rgba8(img.width, img.height,
+                                   img.pixels.get(),
+                                   to_filter_min(min_opt),
+                                   to_filter_mag(mag_opt),
+                                   gen_mipmaps)) {
+                fail("Texture::upload_rgba8");
+                break;
+            }
+
+            const int tw = tex->width();
+            const int th = tex->height();
+            textures_->register_texture(lt.name(), std::move(tex));
+
+            BackendEvent ev;
+            auto* loaded = ev.mutable_texture_loaded();
+            loaded->set_name(lt.name());
+            loaded->set_width(static_cast<uint32_t>(tw));
+            loaded->set_height(static_cast<uint32_t>(th));
+            ship_event(ev);
             break;
         }
         case BackendCommand::kLoadFont: {
@@ -341,6 +443,7 @@ bool Engine::exec_audio_cmd(const uint8_t* bytes, size_t len) {
 void Engine::shutdown() {
     walker_.reset();
     programs_.reset();
+    textures_.reset();
     render_ctx_.reset();
     if (gl_ctx_) {
         SDL_GL_DestroyContext(gl_ctx_);
@@ -351,6 +454,29 @@ void Engine::shutdown() {
         window_ = nullptr;
     }
     SDL_Quit();
+}
+
+void Engine::ship_event(const mlregl::transport::backend::BackendEvent& ev) {
+    if (!event_sink_) {
+        // Mirror the JS backend, which silently buffers events when no
+        // listener is wired. We log once per process so misconfigured
+        // setups don't go unnoticed.
+        static bool warned = false;
+        if (!warned) {
+            std::fprintf(stderr,
+                         "[declgl] ship_event: no EventSink registered "
+                         "(events will be dropped); is the bridge wired up?\n");
+            warned = true;
+        }
+        return;
+    }
+    std::string buf;
+    if (!ev.SerializeToString(&buf)) {
+        std::fprintf(stderr,
+                     "[declgl] ship_event: BackendEvent::SerializeToString failed\n");
+        return;
+    }
+    event_sink_(reinterpret_cast<const uint8_t*>(buf.data()), buf.size());
 }
 
 void Engine::render(const mlregl::transport::render::Renderable& tree) {

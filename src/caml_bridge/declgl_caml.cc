@@ -218,16 +218,15 @@ bool drive_one_frame(Callbacks& cb,
 // AFTER the StartRegl-bearing batch has been fully dispatched to the
 // engine, so the engine state already reflects the start config + any
 // earlier commands in the batch.
-void enter_run_loop(const mlregl::transport::backend::StartRegl& start) {
+//
+// Precondition: [engine()->init_window_and_gl] has already returned
+// successfully — we want it to run *during* batch dispatch (so later
+// commands in the same batch, e.g. LoadTexture, see GL state) rather
+// than after, so [dispatch_batch] handles that on first sight of
+// StartRegl.
+void enter_run_loop() {
     if (loop_running_flag()) {
         std::fprintf(stderr, "[declgl/bridge] StartRegl while loop running; ignoring\n");
-        return;
-    }
-
-    if (!engine()->init_window_and_gl(start)) {
-        std::fprintf(stderr,
-                     "[declgl/bridge] init_window_and_gl failed: %s\n",
-                     declgl::last_error());
         return;
     }
 
@@ -246,18 +245,29 @@ void enter_run_loop(const mlregl::transport::backend::StartRegl& start) {
     engine()->shutdown();
 }
 
-// Process every command in the decoded batch. Returns the StartRegl, if
-// any, so the caller can enter the run loop AFTER the whole batch has
-// been dispatched (matching the JS backend's synchronous-loop ordering).
-const mlregl::transport::backend::StartRegl*
-dispatch_batch(const mlregl::transport::backend::BackendCommandBatch& batch) {
+// Process every command in the decoded batch. Returns true iff the
+// batch contained a [StartRegl] AND the window+GL bring-up succeeded —
+// the caller should then enter the run loop. StartRegl is dispatched
+// in-order: we bring up the window the moment we see it so any later
+// command in the same batch (e.g. LoadTexture) lands on a live GL ctx.
+bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch& batch) {
     using namespace mlregl::transport::backend;
-    const StartRegl* found_start = nullptr;
+    bool need_loop = false;
     for (const BackendCommand& cmd : batch.commands()) {
         switch (cmd.kind_case()) {
             case BackendCommand::kStartRegl:
-                found_start = &cmd.start_regl();
-                // Don't enter the loop yet — let the rest of the batch run.
+                if (!loop_running_flag() && !need_loop) {
+                    if (engine()->init_window_and_gl(cmd.start_regl())) {
+                        need_loop = true;
+                    } else {
+                        std::fprintf(stderr,
+                                     "[declgl/bridge] init_window_and_gl failed: %s\n",
+                                     declgl::last_error());
+                    }
+                } else {
+                    std::fprintf(stderr,
+                                 "[declgl/bridge] duplicate StartRegl ignored\n");
+                }
                 break;
             // All other command kinds are forwarded to the engine for its
             // existing decode-and-log handling. Once M3+ lands the engine
@@ -273,7 +283,7 @@ dispatch_batch(const mlregl::transport::backend::BackendCommandBatch& batch) {
                 break;
         }
     }
-    return found_start;
+    return need_loop;
 }
 
 }  // namespace
@@ -290,6 +300,29 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes) {
     // this point; window+GL come up only when StartRegl is processed.
     if (!engine()) {
         engine_storage() = std::make_unique<declgl::Engine>();
+
+        // Wire the BackendEvent sink so the engine can post back to
+        // OCaml (TextureLoaded, FontLoaded, ProgramCreated, ...). The
+        // sink is engine-side opaque (`function<void(bytes,len)>`); we
+        // resolve `recv_regl_cmd_pb` lazily inside the closure because
+        // the user-side `Callback.register` may not have run yet at
+        // engine-construction time.
+        engine()->set_event_sink(
+            [](const uint8_t* bytes, std::size_t len) {
+                const value* recv = caml_named_value("declgl_app_recv_regl_cmd_pb");
+                if (!recv) {
+                    std::fprintf(stderr,
+                                 "[declgl/bridge] BackendEvent dropped: "
+                                 "callback 'declgl_app_recv_regl_cmd_pb' not registered\n");
+                    return;
+                }
+                CAMLparam0();
+                CAMLlocal1(v_bytes);
+                v_bytes = caml_alloc_initialized_string(
+                    len, reinterpret_cast<const char*>(bytes));
+                caml_callback(*recv, v_bytes);
+                CAMLdrop;
+            });
     }
 
     const uint8_t* p = reinterpret_cast<const uint8_t*>(Bytes_val(v_bytes));
@@ -303,15 +336,15 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes) {
         CAMLreturn(Val_unit);
     }
 
-    const auto* start = dispatch_batch(batch);
-    if (start && !loop_running_flag()) {
+    const bool started = dispatch_batch(batch);
+    if (started && !loop_running_flag()) {
         // We're (re-)entering the loop. This call only returns when the
         // user closes the window. Inside the loop, OCaml callbacks may
         // themselves call back into declgl_ship_backend_cmd (e.g. the
         // user's update returns more commands) — that's fine, dispatch
         // is reentrant since it doesn't touch the loop_running_flag
         // when no StartRegl is present.
-        enter_run_loop(*start);
+        enter_run_loop();
     }
 
     CAMLreturn(Val_unit);

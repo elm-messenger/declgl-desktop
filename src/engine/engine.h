@@ -23,6 +23,7 @@
 #include <glad/gl.h>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -32,8 +33,20 @@
 namespace declgl {
 
 class ProgramRegistry;
+class TextureRegistry;
 class RenderableWalker;
 struct RenderContext;
+
+// Bridge → engine sink for serialized BackendEvent payloads. The
+// engine encodes a [mlregl::transport::backend::BackendEvent]
+// (containing one of TextureLoaded / TextureLoadFail / FontLoaded /
+// ProgramCreated / ...), serializes it to bytes, and calls this. The
+// bridge marshals those bytes to the OCaml
+// `Callback.register "declgl_app_recv_regl_cmd_pb"` handler.
+//
+// This indirection keeps the engine OCaml-runtime-agnostic — useful
+// for unit tests that exercise the engine without booting OCaml.
+using EventSink = std::function<void(const uint8_t* bytes, std::size_t len)>;
 
 class Engine {
 public:
@@ -72,15 +85,27 @@ public:
     // Accessor used by the caml_bridge for SwapWindow / pixel-size.
     SDL_Window* sdl_window() const { return window_; }
 
+    // Register the bridge's OCaml-callback dispatcher. Must be called
+    // before any backend command that may fire an event (e.g.
+    // LoadTexture). If unset, events are silently dropped with a warning.
+    void set_event_sink(EventSink sink) { event_sink_ = std::move(sink); }
+
 private:
+    // Helper used by [dispatch_backend_command]: encode `ev` and forward
+    // through [event_sink_]. No-op (with a one-shot warning) if no sink
+    // was registered.
+    void ship_event(const mlregl::transport::backend::BackendEvent& ev);
+
     SDL_Window*    window_      = nullptr;
     SDL_GLContext  gl_ctx_      = nullptr;
     std::string    asset_root_;
     Uint64         start_ticks_ = 0;
+    EventSink      event_sink_;
 
     // M3.B+: GPU resources. Lazily constructed in init_window_and_gl
     // because they require an active GL context.
     std::unique_ptr<ProgramRegistry>  programs_;
+    std::unique_ptr<TextureRegistry>  textures_;
     std::unique_ptr<RenderableWalker> walker_;
     std::unique_ptr<RenderContext>    render_ctx_;
 };
