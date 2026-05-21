@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "gpu/program_registry.h"
+#include "gpu/fbo_pool.h"
 #include "renderer/render_context.h"
 #include "renderer/renderable_walker.h"
 #include "resources/image_decoder.h"
@@ -190,9 +191,11 @@ bool Engine::init_window_and_gl(
     // rather than in [init_decoders_only].
     programs_   = std::make_unique<ProgramRegistry>();
     textures_   = std::make_unique<TextureRegistry>();
+    fbos_       = std::make_unique<FboPool>();
     render_ctx_ = std::make_unique<RenderContext>();
     walker_     = std::make_unique<RenderableWalker>(*programs_);
     render_ctx_->textures = textures_.get();
+    render_ctx_->fbos     = fbos_.get();
 
     render_ctx_->view_w = static_cast<float>(start.virt_width());
     render_ctx_->view_h = static_cast<float>(start.virt_height());
@@ -211,6 +214,20 @@ bool Engine::init_window_and_gl(
     render_ctx_->pixel_w = pw;
     render_ctx_->pixel_h = ph;
     glViewport(0, 0, pw, ph);
+
+    // Provision the FBO pool. JS ml-regl mirrors StartRegl.fbo_num
+    // exactly — running out of palettes mid-frame is a hard error
+    // there. We default to 5 (matching the OCaml builders' default)
+    // when the field is unset/zero.
+    {
+        const int fbo_count =
+            start.fbo_num() > 0 ? static_cast<int>(start.fbo_num()) : 5;
+        if (!fbos_->init(fbo_count, pw, ph)) {
+            set_error("FboPool::init failed");
+            shutdown();
+            return false;
+        }
+    }
 
     // Reasonable defaults for 2D drawing (matches the JS backend).
     glDisable(GL_DEPTH_TEST);
@@ -262,6 +279,15 @@ bool Engine::init_window_and_gl(
         { "textureCropped",         "texture",                "texture"          },
         { "centeredTexture",        "textureCentered",        "textureCentered"  },
         { "centeredCroppedTexture", "textureCroppedCentered", "textureCentered"  },
+        // M3.E: effect & compositor programs. Every one of these uses
+        // the shared [effect.vert.glsl] which projects the unit-quad
+        // corner directly to NDC and passes the texc through as `uv`.
+        // The differences are entirely in the fragment shader.
+        { "palette",            "effect", "palette"           },
+        { "defaultCompositor",  "effect", "defaultCompositor" },
+        { "compFade",           "effect", "compFade"          },
+        { "alphamult",          "effect", "alphamult"         },
+        { "colormult",          "effect", "colormult"         },
     };
     for (const auto& s : kAlwaysOnBuiltins) {
         if (!programs_->get(s.name)) {
@@ -455,6 +481,7 @@ void Engine::shutdown() {
     walker_.reset();
     programs_.reset();
     textures_.reset();
+    fbos_.reset();
     render_ctx_.reset();
     if (gl_ctx_) {
         SDL_GL_DestroyContext(gl_ctx_);
@@ -493,7 +520,10 @@ void Engine::ship_event(const mlregl::transport::backend::BackendEvent& ev) {
 void Engine::render(const mlregl::transport::render::Renderable& tree) {
     if (!walker_ || !render_ctx_) return;
 
-    // Update pixel viewport in case the window was resized.
+    // Update pixel viewport in case the window was resized. Resize the
+    // FBO pool to match — we always keep palettes the size of the
+    // drawing buffer so [palette] / [defaultCompositor] / [compFade]
+    // sample 1:1 when blitting to the system framebuffer.
     if (window_) {
         int pw = 0, ph = 0;
         SDL_GetWindowSizeInPixels(window_, &pw, &ph);
@@ -501,8 +531,13 @@ void Engine::render(const mlregl::transport::render::Renderable& tree) {
             render_ctx_->pixel_w = pw;
             render_ctx_->pixel_h = ph;
             glViewport(0, 0, pw, ph);
+            if (fbos_) fbos_->resize_all(pw, ph);
         }
     }
+
+    // Mark every palette free for this frame. Acquire/release happens
+    // inside the walker as it descends through groups & composites.
+    if (fbos_) fbos_->free_all();
 
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);

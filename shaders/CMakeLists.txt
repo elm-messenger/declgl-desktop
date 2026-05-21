@@ -22,6 +22,12 @@ set(_SHADER_FILES
     textureCentered.vert.glsl
     textureCentered.frag.glsl
     textureCroppedCentered.vert.glsl
+    effect.vert.glsl
+    palette.frag.glsl
+    defaultCompositor.frag.glsl
+    compFade.frag.glsl
+    alphamult.frag.glsl
+    colormult.frag.glsl
 )
 
 set(_GEN_HDR "${CMAKE_CURRENT_BINARY_DIR}/builtin_shaders.h")

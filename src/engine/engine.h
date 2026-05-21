@@ -35,6 +35,7 @@ namespace declgl {
 class ProgramRegistry;
 class TextureRegistry;
 class RenderableWalker;
+class FboPool;
 struct RenderContext;
 
 // Bridge → engine sink for serialized BackendEvent payloads. The
@@ -106,6 +107,7 @@ private:
     // because they require an active GL context.
     std::unique_ptr<ProgramRegistry>  programs_;
     std::unique_ptr<TextureRegistry>  textures_;
+    std::unique_ptr<FboPool>          fbos_;
     std::unique_ptr<RenderableWalker> walker_;
     std::unique_ptr<RenderContext>    render_ctx_;
 };

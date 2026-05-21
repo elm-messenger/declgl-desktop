@@ -1,6 +1,7 @@
 add_library(declgl_gpu STATIC
     program.cc
     program_registry.cc
+    fbo_pool.cc
 )
 
 set_target_properties(declgl_gpu PROPERTIES POSITION_INDEPENDENT_CODE ON)

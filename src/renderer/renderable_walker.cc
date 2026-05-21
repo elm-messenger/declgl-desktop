@@ -10,6 +10,7 @@
 #include <string_view>
 #include <vector>
 
+#include "gpu/fbo_pool.h"
 #include "renderer/render_context.h"
 #include "resources/texture.h"
 #include "resources/texture_registry.h"
@@ -179,16 +180,61 @@ void set_uniform_from_value(const Program& prog,
 
 }  // namespace
 
+RenderableWalker::~RenderableWalker() {
+    if (fs_ebo_) glDeleteBuffers(1, &fs_ebo_);
+    if (fs_vbo_) glDeleteBuffers(1, &fs_vbo_);
+    if (fs_vao_) glDeleteVertexArrays(1, &fs_vao_);
+}
+
 void RenderableWalker::render(const mlregl::transport::render::Renderable& r,
                               const RenderContext& ctx) {
-    using mlregl::transport::render::Renderable;
-    switch (r.kind_case()) {
-        case Renderable::kAtomic:    render_atomic(r.atomic(), ctx);       break;
-        case Renderable::kGroup:     render_group(r.group(), ctx);         break;
-        case Renderable::kComposite: render_composite(r.composite(), ctx); break;
-        case Renderable::KIND_NOT_SET:
-        default: break;
+    // Snapshot the framebuffer the engine had bound on entry. The
+    // top-level palette is blitted back to it via the `palette`
+    // program, mirroring JS step():
+    //   const pid = drawRenderable(gview);
+    //   if (pid >= 0) drawPalette({ fbo: fbos[pid] });
+    GLint prev_fbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fbo);
+    target_fbo_at_entry_ = prev_fbo;
+
+    // Forward-rendering fast path: no FBO pool means we can't allocate
+    // palettes, so just render directly to the bound framebuffer. This
+    // is always safe for trees that contain only atomics with no
+    // effects — the visible output is identical because there's
+    // nothing to ping-pong through.
+    if (!ctx.fbos || ctx.fbos->size() == 0) {
+        switch (r.kind_case()) {
+            using R = mlregl::transport::render::Renderable;
+            case R::kAtomic:    render_atomic(r.atomic(), ctx); break;
+            case R::kGroup:
+                for (const auto& child : r.group().children())
+                    render(child, ctx);
+                break;
+            case R::kComposite:
+                if (r.composite().has_left())
+                    render(r.composite().left(),  ctx);
+                if (r.composite().has_right())
+                    render(r.composite().right(), ctx);
+                break;
+            default: break;
+        }
+        return;
     }
+
+    const int pid = draw_renderable(r, ctx);
+    if (pid < 0) return;
+
+    // Restore the entry framebuffer and blit the result palette via the
+    // [palette] passthrough program.
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prev_fbo));
+    glViewport(0, 0, ctx.pixel_w, ctx.pixel_h);
+    if (const Program* prog = programs_.get("palette")) {
+        glUseProgram(prog->id());
+        bind_palette_sampler(*prog, "tex", pid, 0, ctx);
+        draw_fullscreen_quad(*prog);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    release_pid(pid, ctx);
 }
 
 void RenderableWalker::render_atomic(const AtomicRenderable& a,
@@ -530,11 +576,118 @@ void RenderableWalker::render_atomic(const AtomicRenderable& a,
     glDeleteVertexArrays(1, &vao);
 }
 
-void RenderableWalker::render_group(
-    const mlregl::transport::render::GroupRenderable& g,
+void RenderableWalker::release_pid(int pid, const RenderContext& ctx) {
+    if (pid >= 0 && ctx.fbos) ctx.fbos->release(pid);
+}
+
+void RenderableWalker::bind_fbo(int pid, const RenderContext& ctx) {
+    if (pid < 0 || !ctx.fbos) {
+        glBindFramebuffer(GL_FRAMEBUFFER,
+                          static_cast<GLuint>(target_fbo_at_entry_));
+        glViewport(0, 0, ctx.pixel_w, ctx.pixel_h);
+        return;
+    }
+    const Fbo* f = ctx.fbos->get(pid);
+    if (!f) return;
+    glBindFramebuffer(GL_FRAMEBUFFER, f->framebuffer);
+    glViewport(0, 0, f->width, f->height);
+}
+
+void RenderableWalker::bind_palette_sampler(const Program& prog,
+                                            std::string_view uniform_name,
+                                            int pid, int unit,
+                                            const RenderContext& ctx) {
+    if (!ctx.fbos) return;
+    const Fbo* f = ctx.fbos->get(pid);
+    if (!f) return;
+    glActiveTexture(GL_TEXTURE0 + unit);
+    glBindTexture(GL_TEXTURE_2D, f->texture);
+    if (const GLint loc = prog.uniform_location(uniform_name); loc >= 0) {
+        glUniform1i(loc, unit);
+    }
+}
+
+void RenderableWalker::draw_fullscreen_quad(const Program& prog) {
+    // Lazy build: shared across every effect & compositor draw. The
+    // attribute layout (texc only) matches what [effect.vert.glsl]
+    // expects; the corner ordering matches the JS regl spec
+    // (`drawPalette` and friends in app.js):
+    //   [1,1,  1,0,  0,0,  0,1]
+    if (!fs_built_) {
+        static constexpr float kTexc[8] = {
+            1.f, 1.f,
+            1.f, 0.f,
+            0.f, 0.f,
+            0.f, 1.f,
+        };
+        static constexpr uint32_t kIdx[6] = { 0, 1, 2, 0, 2, 3 };
+
+        glGenVertexArrays(1, &fs_vao_);
+        glGenBuffers(1, &fs_vbo_);
+        glGenBuffers(1, &fs_ebo_);
+
+        glBindVertexArray(fs_vao_);
+        glBindBuffer(GL_ARRAY_BUFFER, fs_vbo_);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(kTexc), kTexc, GL_STATIC_DRAW);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, fs_ebo_);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kIdx), kIdx, GL_STATIC_DRAW);
+        // Note: the `texc` attribute location may differ per program
+        // (effect/palette/etc all share effect.vert though, so they
+        // tend to match), but glVertexAttribPointer is bound per-VAO
+        // by the active attrib *index*, not name. We therefore
+        // re-establish the pointer below for whichever program is
+        // active, leaving the data in this VAO's VBO unchanged.
+        glBindVertexArray(0);
+        fs_built_ = true;
+    }
+
+    glBindVertexArray(fs_vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, fs_vbo_);
+    const GLint loc = prog.attribute_location("texc");
+    if (loc >= 0) {
+        glEnableVertexAttribArray(static_cast<GLuint>(loc));
+        glVertexAttribPointer(static_cast<GLuint>(loc), 2, GL_FLOAT,
+                              GL_FALSE, 0, nullptr);
+    }
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+    if (loc >= 0) glDisableVertexAttribArray(static_cast<GLuint>(loc));
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+int RenderableWalker::draw_renderable(
+    const mlregl::transport::render::Renderable& r,
     const RenderContext& ctx) {
-    // M3.B/M3.C: ignore effects; just propagate camera and recurse.
-    // Effects + FBO ping-pong come in M3.E.
+    using R = mlregl::transport::render::Renderable;
+    switch (r.kind_case()) {
+        case R::kAtomic: {
+            // JS [drawRenderable]: solo atomic gets its own palette,
+            // cleared, drawn into.
+            const int pid = ctx.fbos->acquire();
+            if (pid < 0) return -1;
+            bind_fbo(pid, ctx);
+            glClearColor(0.f, 0.f, 0.f, 0.f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            render_atomic(r.atomic(), ctx);
+            return pid;
+        }
+        case R::kGroup:
+            return draw_group(r.group(), -1, ctx);
+        case R::kComposite:
+            return draw_composite(r.composite(), ctx);
+        default:
+            return -1;
+    }
+}
+
+int RenderableWalker::draw_group(
+    const mlregl::transport::render::GroupRenderable& g,
+    int prev_pid, const RenderContext& ctx) {
+    if (g.children_size() == 0) return prev_pid;
+
+    // Camera scoping: caller-save / callee-restore. This mirrors JS
+    // drawGroup which does `let prev_camera = camera; ... camera = prev_camera;`.
+    // We use a per-call RenderContext copy for cleanliness.
     RenderContext child_ctx = ctx;
     if (g.has_camera()) {
         const auto& c = g.camera();
@@ -543,25 +696,217 @@ void RenderableWalker::render_group(
             static_cast<float>(c.zoom()), static_cast<float>(c.rotation())
         };
     }
-    for (const auto& child : g.children()) render(child, child_ctx);
+
+    int cur_pid = prev_pid;
+    int i = 0;
+    const int n = g.children_size();
+    using R = mlregl::transport::render::Renderable;
+    while (i < n) {
+        const auto& c = g.children(i);
+        switch (c.kind_case()) {
+            case R::kGroup: {
+                // Effect-bearing nested groups break the batch and
+                // start fresh; effect-free ones inherit our palette.
+                const bool nested_has_effects =
+                    c.group().effects_size() > 0;
+                const int sub = draw_group(
+                    c.group(),
+                    nested_has_effects ? -1 : cur_pid,
+                    child_ctx);
+                cur_pid = simple_compose(cur_pid, sub, child_ctx);
+                ++i;
+                break;
+            }
+            case R::kComposite: {
+                const int sub = draw_composite(c.composite(), child_ctx);
+                cur_pid = simple_compose(cur_pid, sub, child_ctx);
+                ++i;
+                break;
+            }
+            case R::kAtomic: {
+                // Atomic batching: while consecutive children are
+                // atomics, draw them all into the same palette to
+                // avoid one acquire/release per atomic. This matches
+                // JS drawGroup's inner `while (i < cmds.length)` loop.
+                const bool fresh_palette = (cur_pid < 0);
+                if (fresh_palette) {
+                    cur_pid = ctx.fbos->acquire();
+                    if (cur_pid < 0) { ++i; break; }
+                }
+                bind_fbo(cur_pid, child_ctx);
+                if (fresh_palette) {
+                    glClearColor(0.f, 0.f, 0.f, 0.f);
+                    glClear(GL_COLOR_BUFFER_BIT);
+                }
+                while (i < n) {
+                    const auto& lc = g.children(i);
+                    if (lc.kind_case() != R::kAtomic) break;
+                    render_atomic(lc.atomic(), child_ctx);
+                    ++i;
+                }
+                break;
+            }
+            default:
+                ++i;
+                break;
+        }
+    }
+
+    // Apply effects in declaration order. Each one ping-pongs into a
+    // fresh palette and frees the previous one. JS:
+    //   curPalette = applyEffect(e, curPalette); freePID(curPalette_old);
+    for (int ei = 0; ei < g.effects_size(); ++ei) {
+        if (cur_pid < 0) break;  // empty group, nothing to fade
+        const int npid = apply_effect(g.effects(ei), cur_pid, child_ctx);
+        release_pid(cur_pid, ctx);
+        cur_pid = npid;
+    }
+
+    return cur_pid;
 }
 
-void RenderableWalker::render_composite(
+int RenderableWalker::draw_composite(
     const mlregl::transport::render::CompositeRenderable& c,
     const RenderContext& ctx) {
-    // M3.B placeholder — proper compositing requires FBO ping-pong.
-    // For now, render both halves onto the current target (left first,
-    // then right on top). Compositor program is ignored.
-    static bool warned = false;
-    if (!warned) {
-        std::fprintf(stderr,
-                     "[declgl/render] CompositeRenderable seen — "
-                     "compositing not implemented (M3.E); rendering "
-                     "left+right flat\n");
-        warned = true;
+    if (!c.has_compositor()) return -1;
+    const int r1 = c.has_left()  ? draw_renderable(c.left(),  ctx) : -1;
+    const int r2 = c.has_right() ? draw_renderable(c.right(), ctx) : -1;
+    if (r1 < 0 && r2 < 0) return -1;
+
+    const int npid = ctx.fbos->acquire();
+    if (npid < 0) {
+        release_pid(r1, ctx);
+        release_pid(r2, ctx);
+        return -1;
     }
-    if (c.has_left())  render(c.left(),  ctx);
-    if (c.has_right()) render(c.right(), ctx);
+
+    const auto& comp = c.compositor();
+    const Program* prog = programs_.get(comp.program());
+    if (!prog) {
+        // Compositor program missing: best-effort fallback is to flush
+        // either half straight to the new palette so something
+        // visible shows up. We pick the left half (matches the JS
+        // default-compositor behaviour at mode=0).
+        bind_fbo(npid, ctx);
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        if (r1 >= 0) {
+            if (const Program* pal = programs_.get("palette")) {
+                glUseProgram(pal->id());
+                bind_palette_sampler(*pal, "tex", r1, 0, ctx);
+                draw_fullscreen_quad(*pal);
+            }
+        }
+        release_pid(r1, ctx);
+        release_pid(r2, ctx);
+        return npid;
+    }
+
+    bind_fbo(npid, ctx);
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(prog->id());
+
+    // Bind both source palettes as samplers.
+    bind_palette_sampler(*prog, "t1", r1, 0, ctx);
+    bind_palette_sampler(*prog, "t2", r2, 1, ctx);
+
+    // Numeric/scalar fields → uniforms (e.g. `t` for compFade,
+    // `mode` for defaultCompositor).
+    for (const auto& f : comp.fields()) {
+        if (!f.has_val()) continue;
+        const auto& key = f.key();
+        if (key == "t1" || key == "t2") continue;  // sampler bindings
+        // `mode` is an int — special-case integer uniform binding so
+        // it doesn't get coerced to float (which a sampler/int uniform
+        // wouldn't accept and would log a GL_INVALID_OPERATION).
+        if (key == "mode") {
+            if (f.val().kind_case() == Value::kNumberValue) {
+                if (const GLint loc = prog->uniform_location("mode"); loc >= 0) {
+                    glUniform1i(loc, static_cast<GLint>(f.val().number_value()));
+                }
+            }
+            continue;
+        }
+        set_uniform_from_value(*prog, key, f.val());
+    }
+
+    draw_fullscreen_quad(*prog);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+
+    release_pid(r1, ctx);
+    release_pid(r2, ctx);
+    return npid;
+}
+
+int RenderableWalker::simple_compose(int old_pid, int new_pid,
+                                     const RenderContext& ctx) {
+    if (old_pid < 0)         return new_pid;
+    if (new_pid < 0)         return old_pid;
+    if (old_pid == new_pid)  return old_pid;
+
+    bind_fbo(old_pid, ctx);
+    if (const Program* prog = programs_.get("palette")) {
+        glUseProgram(prog->id());
+        bind_palette_sampler(*prog, "tex", new_pid, 0, ctx);
+        draw_fullscreen_quad(*prog);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    release_pid(new_pid, ctx);
+    return old_pid;
+}
+
+int RenderableWalker::apply_effect(
+    const mlregl::transport::render::Effect& e,
+    int src_pid, const RenderContext& ctx) {
+    const int npid = ctx.fbos->acquire();
+    if (npid < 0) return src_pid;  // pool exhausted, drop the effect
+
+    const Program* prog = programs_.get(e.program());
+    if (!prog) {
+        // Unknown effect program — fall back to a passthrough.
+        bind_fbo(npid, ctx);
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        if (const Program* pal = programs_.get("palette")) {
+            glUseProgram(pal->id());
+            bind_palette_sampler(*pal, "tex", src_pid, 0, ctx);
+            draw_fullscreen_quad(*pal);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+        return npid;
+    }
+
+    bind_fbo(npid, ctx);
+    glClearColor(0.f, 0.f, 0.f, 0.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(prog->id());
+    bind_palette_sampler(*prog, "tex", src_pid, 0, ctx);
+
+    // Numeric fields → uniforms by name. `view` is provided too
+    // (some effects like blur scale by it). The `texture` field key
+    // would normally be string and is reserved for the sampler; the
+    // walker doesn't treat it specially here because effects don't
+    // ship one — the source FBO is auto-bound.
+    if (const GLint loc = prog->uniform_location("view"); loc >= 0) {
+        glUniform2f(loc, ctx.view_w * 0.5f, -ctx.view_h * 0.5f);
+    }
+    for (const auto& f : e.fields()) {
+        if (!f.has_val()) continue;
+        const auto& key = f.key();
+        if (key == "texture" || key == "tex") continue;
+        set_uniform_from_value(*prog, key, f.val());
+    }
+
+    draw_fullscreen_quad(*prog);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return npid;
 }
 
 }  // namespace declgl
+

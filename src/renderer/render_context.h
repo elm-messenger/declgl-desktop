@@ -7,6 +7,7 @@
 namespace declgl {
 
 class TextureRegistry;
+class FboPool;
 
 struct RenderContext {
     // Virtual-pixel canvas size (set from StartRegl). Used for the `view`
@@ -33,6 +34,12 @@ struct RenderContext {
     // valid value (means: no textures registered yet, missing-name
     // lookups all return nullptr at the registry layer).
     const TextureRegistry* textures = nullptr;
+
+    // M3.E: pool of offscreen palettes the walker uses when rendering
+    // [GroupRenderable.effects] / [CompositeRenderable]. Non-owning;
+    // owned by the engine. Null = compositing falls back to direct
+    // forward rendering (effects/composites silently drop).
+    FboPool* fbos = nullptr;
 };
 
 }  // namespace declgl
