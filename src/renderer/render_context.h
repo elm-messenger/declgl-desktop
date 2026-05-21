@@ -6,6 +6,8 @@
 
 namespace declgl {
 
+class TextureRegistry;
+
 struct RenderContext {
     // Virtual-pixel canvas size (set from StartRegl). Used for the `view`
     // uniform of the JS-style vertex shaders.
@@ -25,6 +27,13 @@ struct RenderContext {
     // Pixel viewport (set on resize). Independent of view_*.
     int  pixel_w = 0;
     int  pixel_h = 0;
+
+    // M3.D: textures the walker may resolve when an atomic carries a
+    // `texture` field. Non-owning — owned by the engine. Null is a
+    // valid value (means: no textures registered yet, missing-name
+    // lookups all return nullptr at the registry layer).
+    const TextureRegistry* textures = nullptr;
 };
 
 }  // namespace declgl
+

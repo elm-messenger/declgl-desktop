@@ -192,6 +192,7 @@ bool Engine::init_window_and_gl(
     textures_   = std::make_unique<TextureRegistry>();
     render_ctx_ = std::make_unique<RenderContext>();
     walker_     = std::make_unique<RenderableWalker>(*programs_);
+    render_ctx_->textures = textures_.get();
 
     render_ctx_->view_w = static_cast<float>(start.virt_width());
     render_ctx_->view_h = static_cast<float>(start.virt_height());
@@ -251,6 +252,16 @@ bool Engine::init_window_and_gl(
         { "roundedRect", "circle",   "roundedRect" },
         { "quad",        "triangle", "triangle" },
         { "poly",        "triangle", "triangle" },
+        // M3.D: textured primitives. `texture` and `textureCropped`
+        // share a single (vert, frag) pair — the difference is whether
+        // the walker sources the per-vertex `texc` from the call or
+        // from a hardcoded fullscreen-UV table. Likewise
+        // `centeredCroppedTexture` reuses the centered frag (both
+        // read the `vuv` varying).
+        { "texture",                "texture",                "texture"          },
+        { "textureCropped",         "texture",                "texture"          },
+        { "centeredTexture",        "textureCentered",        "textureCentered"  },
+        { "centeredCroppedTexture", "textureCroppedCentered", "textureCentered"  },
     };
     for (const auto& s : kAlwaysOnBuiltins) {
         if (!programs_->get(s.name)) {

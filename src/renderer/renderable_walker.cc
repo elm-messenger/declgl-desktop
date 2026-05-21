@@ -10,6 +10,10 @@
 #include <string_view>
 #include <vector>
 
+#include "renderer/render_context.h"
+#include "resources/texture.h"
+#include "resources/texture_registry.h"
+
 namespace declgl {
 
 namespace {
@@ -82,6 +86,76 @@ const QuadGeom* hardcoded_quad_for(std::string_view program) {
     if (program == "circle")      return &kNdcQuad;
     if (program == "roundedRect") return &kNdcQuad;
     return nullptr;
+}
+
+// True for the four texture-sampling builtins. Captured here so the
+// branchy texture path stays out of the hot path for non-textured
+// draws (most calls in a typical scene).
+bool is_texture_program(std::string_view program) {
+    return program == "texture"
+        || program == "textureCropped"
+        || program == "centeredTexture"
+        || program == "centeredCroppedTexture";
+}
+
+// True iff this textured program ships its own `texc` attribute as a
+// per-call field. The other two get the JS-hardcoded UV layout.
+bool texture_program_uses_caller_texc(std::string_view program) {
+    return program == "textureCropped" || program == "centeredCroppedTexture";
+}
+
+// Which programs need the indices-only hardcoded fallback. Both
+// textureCropped and texture ship `pos` themselves but reuse the JS
+// 6-index quad layout. centeredTexture/centeredCroppedTexture ship
+// neither pos nor indices.
+const std::array<uint32_t, 6>& texture_quad_indices() {
+    static constexpr std::array<uint32_t, 6> kIdx = { 0u, 1u, 2u,  0u, 2u, 3u };
+    return kIdx;
+}
+
+// JS-hardcoded `texc` table for [texture] and [centeredTexture]. The
+// (Y-flipped) corners drive each quad's UV plumbing in the vertex
+// shaders we vendored.
+const std::array<float, 8>& texture_default_texc() {
+    static constexpr std::array<float, 8> kTexc = {
+        0.f, 1.f,
+        1.f, 1.f,
+        1.f, 0.f,
+        0.f, 0.f,
+    };
+    return kTexc;
+}
+
+// JS-hardcoded `texc2` table for [centeredCroppedTexture]. Drives the
+// per-vertex unit-quad corner used to fan out posize.zw.
+const std::array<float, 8>& centered_cropped_texc2() {
+    static constexpr std::array<float, 8> kTexc2 = {
+        -0.5f, 0.5f,
+         0.5f, 0.5f,
+         0.5f, -0.5f,
+        -0.5f, -0.5f,
+    };
+    return kTexc2;
+}
+
+// Expand the OCaml's 4-float `texc` (cx, cy, cw, ch) into 8-float
+// per-corner UVs. Mirrors the preprocessor in
+// ml-regl-js/src/app.js for [centered_texture_cropped]:
+//
+//     [x1,y1, x1+w,y1, x1+w,y1+h, x1,y1+h]
+//
+// We do this in the walker because the JS-side closure that does the
+// expansion is JS-only — the OCaml builder ships the compact 4-tuple
+// directly.
+std::array<float, 8> expand_centered_cropped_texc(const std::vector<float>& v) {
+    if (v.size() < 4) return texture_default_texc();
+    const float x1 = v[0], y1 = v[1], w = v[2], h = v[3];
+    return {
+        x1,     y1,
+        x1 + w, y1,
+        x1 + w, y1 + h,
+        x1,     y1 + h,
+    };
 }
 
 // Set a uniform from a Value, choosing the glUniformNfv flavour from
@@ -172,14 +246,184 @@ void RenderableWalker::render_atomic(const AtomicRenderable& a,
     // uniform of the same name on the program; the program object
     // returns -1 for unknown names so unused fields are harmless. This
     // covers `color` (vec4), `posize` (vec4), `angle` (float), `cr`
-    // (vec3), `cs` (vec4), `radius` (float), `depth` (float), and any
-    // future scalars/short vectors a builtin might want.
+    // (vec3), `cs` (vec4), `radius` (float), `depth` (float), `alpha`
+    // (float), and any future scalars/short vectors a builtin might
+    // want.
+    //
+    // Structural fields are excluded:
+    //   - `pos`, `elem`, `prim` are geometry; handled below.
+    //   - `texture` is a string sampler binding; resolved later.
+    //   - `texc` / `texc2` are vertex attributes, not uniforms.
+    bool has_alpha_field = false;
     for (const auto& f : a.fields()) {
         const auto& key = f.key();
         if (!f.has_val()) continue;
-        // Skip the structural fields that aren't uniforms.
-        if (key == "pos" || key == "elem" || key == "prim") continue;
+        if (key == "pos" || key == "elem" || key == "prim" ||
+            key == "texture" || key == "texc" || key == "texc2") {
+            continue;
+        }
+        if (key == "alpha") has_alpha_field = true;
         set_uniform_from_value(*prog, key, f.val());
+    }
+
+    // Default `alpha` = 1.0 if the caller didn't provide it. The JS
+    // backend has the same fallback in its preprocessors. Only
+    // touched when the program actually has an `alpha` uniform.
+    if (!has_alpha_field) {
+        if (const GLint loc = prog->uniform_location("alpha"); loc >= 0) {
+            glUniform1f(loc, 1.0f);
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Texture path (M3.D).
+    //
+    // The four sampling builtins all share this routine: bind the
+    // named texture to TEXUNIT0, source/synthesize the per-vertex
+    // `position`, `texc` and (for the cropped-centered variant) `texc2`
+    // streams per the JS app.js setup, then draw the 6-index quad.
+    //
+    // Kept separate from the general field-driven path because
+    // textures need (a) a non-numeric field (`texture` string) which
+    // the generic uniform binder can't translate, (b) extra attribute
+    // VBOs that vary per-program, and (c) a sampler-uniform
+    // assignment (`tex` on TEXUNIT0).
+    // ----------------------------------------------------------------
+    if (is_texture_program(prog_name)) {
+        // 1. Resolve and bind the texture.
+        const Value* tex_v = find_field(a, "texture");
+        if (!tex_v || tex_v->kind_case() != Value::kStringValue) {
+            std::fprintf(stderr,
+                         "[declgl/render] '%s': missing or non-string "
+                         "`texture` field\n", prog_name.c_str());
+            return;
+        }
+        if (!ctx.textures) {
+            std::fprintf(stderr,
+                         "[declgl/render] '%s': no TextureRegistry on "
+                         "context; cannot resolve '%s'\n",
+                         prog_name.c_str(),
+                         tex_v->string_value().c_str());
+            return;
+        }
+        const Texture* tex = ctx.textures->get(tex_v->string_value());
+        if (!tex) {
+            // Mirror the JS preprocessor: silently drop draws targeting
+            // not-yet-loaded textures. The OCaml side already handles
+            // load_texture asynchronously, so this is the normal
+            // first-frame condition for any textured asset.
+            return;
+        }
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex->id());
+        if (const GLint loc = prog->uniform_location("tex"); loc >= 0) {
+            glUniform1i(loc, 0);
+        }
+
+        // 2. Resolve `position` / `texc` / `texc2` source streams.
+        std::vector<float>      pos_buf;
+        const float*            positions     = nullptr;
+        GLsizei                 vertex_count  = 4;
+
+        std::vector<float>      texc_buf;
+        const float*            texc_data     = nullptr;
+        std::array<float, 8>    texc_storage{};
+
+        const float*            texc2_data    = nullptr;
+
+        if (prog_name == "centeredTexture" ||
+            prog_name == "centeredCroppedTexture") {
+            // Vertex shader synthesizes positions from `texc` + `posize`,
+            // so there's no `position` attribute to feed.
+            positions    = nullptr;
+            vertex_count = 4;
+        } else {
+            // `texture` and `textureCropped` source `position` from `pos`.
+            pos_buf = as_floats(find_field(a, "pos"));
+            if (pos_buf.size() < 8 || pos_buf.size() % 2 != 0) {
+                std::fprintf(stderr,
+                             "[declgl/render] '%s': `pos` must have at "
+                             "least 4 vertices (got %zu floats)\n",
+                             prog_name.c_str(), pos_buf.size());
+                return;
+            }
+            positions    = pos_buf.data();
+            vertex_count = static_cast<GLsizei>(pos_buf.size() / 2);
+        }
+
+        if (texture_program_uses_caller_texc(prog_name)) {
+            texc_buf = as_floats(find_field(a, "texc"));
+            if (prog_name == "centeredCroppedTexture") {
+                // 4-float (cx,cy,cw,ch) → 8-float per-corner expansion.
+                texc_storage = expand_centered_cropped_texc(texc_buf);
+                texc_data    = texc_storage.data();
+            } else {
+                if (texc_buf.size() < 8) {
+                    std::fprintf(stderr,
+                                 "[declgl/render] '%s': caller-supplied "
+                                 "`texc` must have 8 floats (got %zu)\n",
+                                 prog_name.c_str(), texc_buf.size());
+                    return;
+                }
+                texc_data = texc_buf.data();
+            }
+        } else {
+            texc_data = texture_default_texc().data();
+        }
+
+        if (prog_name == "centeredCroppedTexture") {
+            texc2_data = centered_cropped_texc2().data();
+        }
+
+        // 3. Build the VAO with up to three attribute streams + EBO.
+        const auto& idx = texture_quad_indices();
+        GLuint vao = 0, vbo_pos = 0, vbo_texc = 0, vbo_texc2 = 0, ebo = 0;
+        glGenVertexArrays(1, &vao);
+        glBindVertexArray(vao);
+
+        auto bind_vec2_attrib = [&](const char* name, const float* data,
+                                    int count, GLuint& vbo_out) {
+            const GLint loc = prog->attribute_location(name);
+            if (loc < 0 || data == nullptr) return;
+            glGenBuffers(1, &vbo_out);
+            glBindBuffer(GL_ARRAY_BUFFER, vbo_out);
+            glBufferData(GL_ARRAY_BUFFER,
+                         static_cast<GLsizeiptr>(count * 2 * sizeof(float)),
+                         data, GL_STREAM_DRAW);
+            glEnableVertexAttribArray(static_cast<GLuint>(loc));
+            glVertexAttribPointer(static_cast<GLuint>(loc), 2, GL_FLOAT,
+                                  GL_FALSE, 0, nullptr);
+        };
+
+        bind_vec2_attrib("position", positions,  vertex_count, vbo_pos);
+        bind_vec2_attrib("texc",     texc_data,  vertex_count, vbo_texc);
+        bind_vec2_attrib("texc2",    texc2_data, vertex_count, vbo_texc2);
+
+        glGenBuffers(1, &ebo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                     static_cast<GLsizeiptr>(idx.size() * sizeof(uint32_t)),
+                     idx.data(), GL_STREAM_DRAW);
+
+        glDrawElements(GL_TRIANGLES,
+                       static_cast<GLsizei>(idx.size()),
+                       GL_UNSIGNED_INT, nullptr);
+
+        // Tear down. VBO/EBO deletes detach automatically from the VAO
+        // we're about to delete; doing it in this order keeps GL state
+        // explicit and matches the rest of the walker.
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+        if (vbo_pos)   glDeleteBuffers(1, &vbo_pos);
+        if (vbo_texc)  glDeleteBuffers(1, &vbo_texc);
+        if (vbo_texc2) glDeleteBuffers(1, &vbo_texc2);
+        glDeleteBuffers(1, &ebo);
+        glDeleteVertexArrays(1, &vao);
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return;
     }
 
     // Geometry assembly.
