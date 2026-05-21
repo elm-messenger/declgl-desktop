@@ -39,6 +39,7 @@ class FontRegistry;
 class RenderableWalker;
 class FboPool;
 class AssetLoader;
+class AudioEngine;
 struct RenderContext;
 
 // Bridge → engine sink for serialized BackendEvent payloads. The
@@ -76,8 +77,11 @@ class Engine {
 		const mlregl::transport::backend::BackendCommand &cmd);
 
 	// Decode + dispatch an AudioCommandBatch. Returns false on parse
-	// failure.
-	bool exec_audio_cmd(const uint8_t *bytes, size_t len);
+	// failure. [now_ms] is OCaml's wall clock at the moment OCaml
+	// shipped the batch — used as the time anchor for start_time /
+	// volume timeline scheduling. Same clock convention as JS's
+	// [Date.now()].
+	bool exec_audio_cmd(const uint8_t *bytes, size_t len, double now_ms);
 
 	// Walk a Renderable tree and emit the corresponding GL draw calls
 	// onto the currently-bound framebuffer. Per-frame entry point for
@@ -99,6 +103,12 @@ class Engine {
 	{
 		event_sink_ = std::move(sink);
 	}
+
+	// Same as [set_event_sink] but for AudioBackendEvents (shipped
+	// to OCaml via the [declgl_app_recv_audio_msg_pb] callback).
+	// AudioContextReady, AudioLoadSuccess, AudioLoadFailed all
+	// flow through this sink.
+	void set_audio_event_sink(EventSink sink);
 
     private:
 	// Helper used by [dispatch_backend_command]: encode `ev` and forward
@@ -136,6 +146,11 @@ class Engine {
 	// before the GL context in [shutdown()] so the worker can't outlive
 	// anything it might hand off to.
 	std::unique_ptr<AssetLoader> loader_;
+
+	// Audio runtime: SDL device + mixer + voice table. Constructed
+	// lazily on first audio activity (matches JS's lazy
+	// AudioContext creation). Destroyed in [shutdown].
+	std::unique_ptr<AudioEngine> audio_;
 };
 
 // Static last-error string. Set by failing engine calls; cleared by

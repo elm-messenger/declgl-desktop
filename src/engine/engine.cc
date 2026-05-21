@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "audio/audio_engine.h"
 #include "gpu/program_registry.h"
 #include "gpu/fbo_pool.h"
 #include "renderer/render_context.h"
@@ -134,7 +135,18 @@ void Engine::init_decoders_only()
 	if (!loader_) {
 		loader_ = std::make_unique<AssetLoader>();
 	}
+	if (!audio_) {
+		audio_ = std::make_unique<AudioEngine>();
+	}
 	set_error("");
+}
+
+void Engine::set_audio_event_sink(EventSink sink)
+{
+	if (!audio_) {
+		audio_ = std::make_unique<AudioEngine>();
+	}
+	audio_->set_event_sink(std::move(sink));
 }
 
 bool Engine::init_window_and_gl(
@@ -465,8 +477,35 @@ void Engine::dispatch_backend_command(
 		break;
 	}
 	case BackendCommand::kLoadAudio: {
+		const auto &la = cmd.load_audio();
 		std::printf("[declgl] load_audio url=%s\n",
-			    cmd.load_audio().audio_url().c_str());
+			    la.audio_url().c_str());
+
+		if (!audio_) {
+			audio_ = std::make_unique<AudioEngine>();
+		}
+		// Open the audio device eagerly on the first LoadAudio so
+		// we know the device sample rate to resample to in the
+		// worker. JS does the equivalent inside its first
+		// [decodeAudioData] call. Failure here ships an
+		// audio_load_failed below; we still emit the load-failed
+		// event so the OCaml side doesn't hang waiting on the
+		// success/fail pair.
+		if (!audio_->ensure_open()) {
+			audio_->emit_load_failed(la.audio_url(),
+						 AudioDecodeError::IoFailure);
+			break;
+		}
+
+		if (!loader_) {
+			loader_ = std::make_unique<AssetLoader>();
+		}
+		DecodeJob job;
+		job.kind = AssetKind::Audio;
+		job.name = la.audio_url();
+		job.image_url = la.audio_url();
+		job.audio_sample_rate = audio_->device_sample_rate();
+		loader_->enqueue(std::move(job));
 		break;
 	}
 	case BackendCommand::kUnloadTexture: {
@@ -532,15 +571,16 @@ void Engine::dispatch_backend_command(
 		break;
 	}
 	case BackendCommand::kUnloadAudio: {
-		// Audio backend is still a stub on declgl-desktop (see the
-		// kLoadAudio branch above — it logs and does nothing).
-		// The unload path therefore mirrors that: log and move on.
-		// Once an actual audio decoder + voice manager land here,
-		// this is where the SDL_AudioStream / decoded-PCM buffer
-		// is destroyed.
-		std::printf(
-			"[declgl] unload_audio url=%s (no-op; audio backend stubbed)\n",
-			cmd.unload_audio().audio_url().c_str());
+		const auto &ua = cmd.unload_audio();
+		std::printf("[declgl] unload_audio url=%s\n",
+			    ua.audio_url().c_str());
+		if (loader_) {
+			loader_->cancel_pending(AssetKind::Audio,
+						ua.audio_url());
+		}
+		if (audio_) {
+			audio_->unregister_buffer(ua.audio_url());
+		}
 		break;
 	}
 	case BackendCommand::kStartRegl:
@@ -554,59 +594,12 @@ void Engine::dispatch_backend_command(
 	}
 }
 
-bool Engine::exec_audio_cmd(const uint8_t *bytes, size_t len)
+bool Engine::exec_audio_cmd(const uint8_t *bytes, size_t len, double now_ms)
 {
-	using namespace mlregl::transport::audio;
-	AudioCommandBatch batch;
-	if (!batch.ParseFromArray(bytes, static_cast<int>(len))) {
-		set_error("exec_audio_cmd: ParseFromArray failed");
-		return false;
+	if (!audio_) {
+		audio_ = std::make_unique<AudioEngine>();
 	}
-
-	std::printf("[declgl] audio: AudioCommandBatch with %d actions\n",
-		    batch.actions_size());
-
-	for (const auto &act : batch.actions()) {
-		switch (act.kind_case()) {
-		case AudioAction::kStartSound: {
-			const auto &s = act.start_sound();
-			std::printf(
-				"  - start_sound group=%u buf=%u t=%g start_at=%g vol=%g\n",
-				s.node_group_id(), s.buffer_id(),
-				s.start_time(), s.start_at(), s.volume());
-			break;
-		}
-		case AudioAction::kStopSound:
-			std::printf("  - stop_sound group=%u\n",
-				    act.stop_sound().node_group_id());
-			break;
-		case AudioAction::kSetVolume:
-			std::printf("  - set_volume group=%u vol=%g\n",
-				    act.set_volume().node_group_id(),
-				    act.set_volume().volume());
-			break;
-		case AudioAction::kSetVolumeAt:
-			std::printf(
-				"  - set_volume_at group=%u (%d timelines)\n",
-				act.set_volume_at().node_group_id(),
-				act.set_volume_at().volume_at_size());
-			break;
-		case AudioAction::kSetLoopConfig:
-			std::printf("  - set_loop_config group=%u\n",
-				    act.set_loop_config().node_group_id());
-			break;
-		case AudioAction::kSetPlaybackRate:
-			std::printf("  - set_playback_rate group=%u rate=%g\n",
-				    act.set_playback_rate().node_group_id(),
-				    act.set_playback_rate().playback_rate());
-			break;
-		case AudioAction::KIND_NOT_SET:
-		default:
-			std::fprintf(stderr, "  - <unset action>\n");
-			break;
-		}
-	}
-	return true;
+	return audio_->exec_audio_cmd(bytes, len, now_ms);
 }
 
 void Engine::shutdown()
@@ -619,6 +612,11 @@ void Engine::shutdown()
 		loader_->stop();
 		loader_.reset();
 	}
+	// Tear the audio device down before SDL_Quit. AudioEngine's
+	// destructor stops the SDL audio thread (SDL_DestroyAudioStream)
+	// before any voice buffer is freed, so there's no risk of the
+	// callback firing into freed memory.
+	audio_.reset();
 	walker_.reset();
 	programs_.reset();
 	textures_.reset();
@@ -678,6 +676,36 @@ void Engine::drain_ready_assets(std::size_t max_items)
 	loader_->drain_ready(ready, max_items);
 
 	for (auto &r : ready) {
+		// ---- Audio ----
+		// Doesn't touch GL: just register the PCM into the
+		// AudioEngine (or ship audio_load_failed). Done first so
+		// the texture/font failure-path doesn't accidentally grab
+		// audio jobs on a path that calls *_loadfail.
+		if (r.kind == AssetKind::Audio) {
+			if (!audio_) {
+				audio_ = std::make_unique<AudioEngine>();
+			}
+			if (r.audio_error != AudioDecodeError::None ||
+			    !r.audio.ok()) {
+				std::fprintf(
+					stderr,
+					"[declgl] audio load '%s' failed: %s\n",
+					r.name.c_str(),
+					r.error.empty() ? "decode" :
+							  r.error.c_str());
+				audio_->emit_load_failed(
+					r.image_url,
+					r.audio_error !=
+							AudioDecodeError::None ?
+						r.audio_error :
+						AudioDecodeError::DecodeFailure);
+				continue;
+			}
+			audio_->register_buffer(r.image_url,
+						std::move(r.audio));
+			continue;
+		}
+
 		// ---- failure path (shared between texture / font) ----
 		if (!r.error.empty() || !r.image.ok()) {
 			std::fprintf(stderr,

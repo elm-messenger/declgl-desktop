@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "audio/audio_decoder.h"
 #include "resources/font.h"
 #include "resources/image_decoder.h"
 
@@ -182,6 +183,25 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 					static_cast<std::size_t>(img.height));
 		}
 		out.image = std::move(img);
+		return;
+	}
+
+	if (job.kind == AssetKind::Audio) {
+		// Audio uses [image_url] as the file path (see DecodeJob
+		// docstring). We rely on the engine to set
+		// [audio_sample_rate] before enqueueing — if it didn't,
+		// the decoder fails fast with a clear message.
+		AudioDecodeError err = AudioDecodeError::None;
+		std::string err_msg;
+		out.audio = decode_audio_file(job.image_url,
+					      job.audio_sample_rate, err,
+					      err_msg);
+		if (!out.audio.ok()) {
+			out.audio_error = err;
+			out.error = err_msg.empty() ? "decode_audio_file" :
+						      err_msg;
+			return;
+		}
 		return;
 	}
 

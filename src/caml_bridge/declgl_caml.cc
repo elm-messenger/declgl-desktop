@@ -105,6 +105,19 @@ bool &loop_running_flag()
 	return running;
 }
 
+// Shared time origin: the SDL tick captured when the run loop first
+// entered. Same value the bridge subtracts before it calls
+// [declgl_app_update], so [now_ms] computed off this anchor lines up
+// with the OCaml-side clock that StartSound / volume timeline points
+// reference. Zero before the loop has started — audio commands shipped
+// pre-StartRegl get [now_ms = 0], which still works because the
+// AudioEngine compares to its own [frames_produced_] anchor.
+Uint64 &bridge_start_ticks()
+{
+	static Uint64 t = 0;
+	return t;
+}
+
 // SDL → protobuf event encoder. Returns true if `out` was filled.
 bool sdl_event_to_pb(const SDL_Event &ev,
 		     mlregl::transport::backend::Event *out)
@@ -256,7 +269,8 @@ void enter_run_loop()
 		return;
 
 	SDL_Window *window = engine()->sdl_window();
-	Uint64 start_ticks = SDL_GetTicks();
+	bridge_start_ticks() = SDL_GetTicks();
+	const Uint64 start_ticks = bridge_start_ticks();
 
 	loop_running_flag() = true;
 	while (drive_one_frame(cb, window, start_ticks)) {
@@ -350,6 +364,30 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
 			caml_callback(*recv, v_bytes);
 			CAMLdrop;
 		});
+
+		// Same shape as above but for AudioBackendEvent
+		// (audio_context_ready / audio_load_success /
+		// audio_load_failed). The OCaml side dispatches them
+		// through a separate Callback.register named
+		// 'declgl_app_recv_audio_msg_pb'.
+		engine()->set_audio_event_sink([](const uint8_t *bytes,
+						  std::size_t len) {
+			const value *recv = caml_named_value(
+				"declgl_app_recv_audio_msg_pb");
+			if (!recv) {
+				std::fprintf(
+					stderr,
+					"[declgl/bridge] AudioBackendEvent dropped: "
+					"callback 'declgl_app_recv_audio_msg_pb' not registered\n");
+				return;
+			}
+			CAMLparam0();
+			CAMLlocal1(v_bytes);
+			v_bytes = caml_alloc_initialized_string(
+				len, reinterpret_cast<const char *>(bytes));
+			caml_callback(*recv, v_bytes);
+			CAMLdrop;
+		});
 	}
 
 	const uint8_t *p =
@@ -390,7 +428,17 @@ extern "C" CAMLprim value declgl_ship_audio_cmd(value v_bytes)
 	const uint8_t *p =
 		reinterpret_cast<const uint8_t *>(Bytes_val(v_bytes));
 	const size_t n = caml_string_length(v_bytes);
-	engine()->exec_audio_cmd(p, n);
+
+	// Stamp the batch with the same ms clock OCaml's [update] is
+	// driven on. If the run loop hasn't started yet we ship 0 — the
+	// AudioEngine handles that fine (it'll just queue commands
+	// against frame 0 of the playback timeline).
+	const double now_ms =
+		bridge_start_ticks() == 0 ?
+			0.0 :
+			static_cast<double>(SDL_GetTicks() -
+					    bridge_start_ticks());
+	engine()->exec_audio_cmd(p, n, now_ms);
 
 	CAMLreturn(Val_unit);
 }

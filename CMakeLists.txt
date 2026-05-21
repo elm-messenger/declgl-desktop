@@ -66,6 +66,7 @@ add_subdirectory(src/proto_gen)
 add_subdirectory(shaders)
 add_subdirectory(src/gpu)
 add_subdirectory(src/resources)
+add_subdirectory(src/audio)
 add_subdirectory(src/renderer)
 add_subdirectory(src/engine)
 add_subdirectory(src/caml_bridge)
@@ -90,10 +91,12 @@ add_library(declgl STATIC
     $<TARGET_OBJECTS:declgl_renderer>
     $<TARGET_OBJECTS:declgl_gpu>
     $<TARGET_OBJECTS:declgl_resources>
+    $<TARGET_OBJECTS:declgl_audio>
     $<TARGET_OBJECTS:declgl_shaders>
     $<TARGET_OBJECTS:declgl_proto>
     $<TARGET_OBJECTS:glad>
     $<TARGET_OBJECTS:stb_image>
+    $<TARGET_OBJECTS:stb_vorbis>
 )
 
 set_target_properties(declgl PROPERTIES

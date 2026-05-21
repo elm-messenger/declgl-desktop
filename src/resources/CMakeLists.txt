@@ -29,4 +29,12 @@ target_link_libraries(declgl_resources
     PRIVATE
         stb_image
         nlohmann_json::nlohmann_json
+        SDL3::SDL3
 )
+
+# resources includes audio/audio_decoder.h. We don't need the audio TU
+# linked here (declgl_audio is its own object lib already pulled into
+# the top-level archive), but we need its include path. The convention
+# in this tree is "everything under src/ is on the include path" —
+# already covered by [target_include_directories] above pointing at
+# ${CMAKE_SOURCE_DIR}/src.

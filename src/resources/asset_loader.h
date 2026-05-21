@@ -62,6 +62,7 @@
 #include <vector>
 
 #include "resources/image_decoder.h"
+#include "audio/audio_decoder.h"
 
 namespace declgl
 {
@@ -73,6 +74,7 @@ class Font;
 enum class AssetKind {
 	Texture,
 	Font,
+	Audio,
 };
 
 // One job submitted by the GL thread to the worker.
@@ -103,6 +105,12 @@ struct DecodeJob {
 	// time on the GL thread). Forwarded verbatim through the worker.
 	int min_filter_enum = 0; // proto TextureMinOption
 	int mag_filter_enum = 0; // proto TextureMagOption
+
+	// Audio only: file path is in [image_url] (we re-use that field
+	// to avoid bloating the job struct). [audio_sample_rate] is the
+	// device rate the worker should resample to. Set by the engine
+	// from [AudioEngine::device_sample_rate()] at enqueue time.
+	uint32_t audio_sample_rate = 0;
 };
 
 // What the worker hands back to the GL thread once the job is done.
@@ -123,6 +131,14 @@ struct ReadyAsset {
 	// Font-only: the parsed [Font]. nullptr for texture jobs and for
 	// failed font jobs.
 	std::unique_ptr<Font> font;
+
+	// Audio-only: decoded + device-rate-normalized PCM. Empty for
+	// texture/font jobs and for failed audio jobs.
+	DecodedAudio audio;
+
+	// Audio-only: classification of the failure (mirrors the proto's
+	// AudioLoadError enum). [None] on success.
+	AudioDecodeError audio_error = AudioDecodeError::None;
 
 	// Echo of the job's filter selections (texture only).
 	int min_filter_enum = 0;
