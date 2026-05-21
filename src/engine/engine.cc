@@ -9,6 +9,7 @@
 #include "gpu/fbo_pool.h"
 #include "renderer/render_context.h"
 #include "renderer/renderable_walker.h"
+#include "resources/asset_loader.h"
 #include "resources/font.h"
 #include "resources/font_registry.h"
 #include "resources/image_decoder.h"
@@ -92,7 +93,15 @@ Engine::Engine() = default;
 Engine::~Engine() { shutdown(); }
 
 void Engine::init_decoders_only() {
-    // No persistent decoder state yet. Reserved for M3+ caches.
+    // The async asset decode pipeline doesn't touch GL, so we bring it
+    // up here — well before [init_window_and_gl] — so any LoadTexture /
+    // LoadFont commands that arrive between [init_decoders_only] and
+    // [StartRegl] get decoded in parallel with the rest of startup.
+    // Their ready buffers sit in the loader's queue until [render()]
+    // starts draining them.
+    if (!loader_) {
+        loader_ = std::make_unique<AssetLoader>();
+    }
     set_error("");
 }
 
@@ -349,56 +358,28 @@ void Engine::dispatch_backend_command(
             }
             std::printf("\n");
 
-            // Helper that encodes the failure event and ships it.
-            auto fail = [&](const char* why) {
-                std::fprintf(stderr,
-                             "[declgl] load_texture '%s' failed: %s\n",
-                             lt.name().c_str(), why);
-                BackendEvent ev;
-                ev.mutable_texture_loadfail()->set_name(lt.name());
-                ship_event(ev);
-            };
-
-            if (!textures_) {
-                // Pre-StartRegl: no GL context yet, so we can't upload.
-                // Mirror the JS backend's silent-tolerate-of-pre-start
-                // by failing rather than crashing.
-                fail("texture registry not initialized (no StartRegl yet?)");
-                break;
+            // Hand the decode off to the worker thread. The GL-side
+            // upload + register + event-ship happens inside
+            // [drain_ready_assets] at the top of the next [render()].
+            //
+            // Note: pre-StartRegl LoadTexture is fine here — the
+            // worker doesn't touch GL. Decoded buffers sit in the
+            // ready queue until [render()] is first called, at which
+            // point we drain them and upload.
+            if (!loader_) {
+                // [init_decoders_only] should have been called already,
+                // but be defensive.
+                loader_ = std::make_unique<AssetLoader>();
             }
-
-            // Filesystem-only URL handling per design — the proto's
-            // [url] field is a path relative to the working directory
-            // (or absolute). No data: URIs, no http(s) fetching.
-            DecodedImage img = decode_image_file(lt.url(), crop);
-            if (!img.ok()) {
-                fail("decode_image_file");
-                break;
-            }
-
-            const bool gen_mipmaps = min_filter_uses_mipmaps(min_opt);
-
-            auto tex = std::make_unique<Texture>();
-            if (!tex->upload_rgba8(img.width, img.height,
-                                   img.pixels.get(),
-                                   to_filter_min(min_opt),
-                                   to_filter_mag(mag_opt),
-                                   gen_mipmaps,
-                                   premultiply)) {
-                fail("Texture::upload_rgba8");
-                break;
-            }
-
-            const int tw = tex->width();
-            const int th = tex->height();
-            textures_->register_texture(lt.name(), std::move(tex));
-
-            BackendEvent ev;
-            auto* loaded = ev.mutable_texture_loaded();
-            loaded->set_name(lt.name());
-            loaded->set_width(static_cast<uint32_t>(tw));
-            loaded->set_height(static_cast<uint32_t>(th));
-            ship_event(ev);
+            DecodeJob job;
+            job.kind              = AssetKind::Texture;
+            job.name              = lt.name();
+            job.image_url         = lt.url();
+            job.crop              = crop;
+            job.premultiply_alpha = premultiply;
+            job.min_filter_enum   = static_cast<int>(min_opt);
+            job.mag_filter_enum   = static_cast<int>(mag_opt);
+            loader_->enqueue(std::move(job));
             break;
         }
         case BackendCommand::kLoadFont: {
@@ -408,104 +389,23 @@ void Engine::dispatch_backend_command(
                         lf.image_url().c_str(),
                         lf.json_url().c_str());
 
-            auto fail = [&](const char* why) {
-                std::fprintf(stderr,
-                             "[declgl] load_font '%s' failed: %s\n",
-                             lf.name().c_str(), why);
-                BackendEvent ev;
-                ev.mutable_font_loadfail()->set_name(lf.name());
-                ship_event(ev);
-            };
-
-            if (!textures_ || !fonts_) {
-                fail("registries not initialized (no StartRegl yet?)");
-                break;
-            }
-
-            // 1. Read the JSON metrics off disk. We bring the whole
-            //    file into a std::string in one shot — BMFont JSONs are
-            //    tens of KB at most.
-            std::string json_bytes;
-            {
-                FILE* fp = std::fopen(lf.json_url().c_str(), "rb");
-                if (!fp) {
-                    fail("fopen(json_url)");
-                    break;
-                }
-                std::fseek(fp, 0, SEEK_END);
-                const long n = std::ftell(fp);
-                std::fseek(fp, 0, SEEK_SET);
-                if (n < 0) {
-                    std::fclose(fp);
-                    fail("ftell(json_url)");
-                    break;
-                }
-                json_bytes.resize(static_cast<size_t>(n));
-                const size_t r = std::fread(json_bytes.data(), 1,
-                                            json_bytes.size(), fp);
-                std::fclose(fp);
-                if (r != json_bytes.size()) {
-                    fail("fread(json_url) short read");
-                    break;
-                }
-            }
-
-            // 2. Parse it.
-            auto font = std::make_unique<Font>();
-            if (!font->parse(json_bytes.data(), json_bytes.size())) {
-                std::fprintf(stderr,
-                             "[declgl] load_font '%s': %s\n",
-                             lf.name().c_str(), font->error().c_str());
-                fail("Font::parse");
-                break;
-            }
-
-            // 3. Load the atlas PNG and upload as a GL texture. Mirrors
-            //    the LoadTexture path: linear/linear filter, no mip
-            //    chain (msdfgen output is sized for the runtime), no
-            //    crop. We register it under its [image_url] so multiple
-            //    fonts can share the same atlas (matches JS).
+            // Off-thread: read+parse JSON, decode atlas PNG. The GL-
+            // side glTexImage2D + Font/Texture registration + event
+            // ship happens in [drain_ready_assets] on the GL thread.
             //
-            //    *premultiply_alpha=false* is critical here: the three
-            //    channels of an MSDF atlas are signed-distance data,
-            //    not pre-attenuated colour. Multiplying RGB by alpha
-            //    would corrupt the signal at any texel where alpha<255
-            //    (e.g. soft edges introduced by msdfgen). Font texels
-            //    pass straight through to the [text.frag.glsl] median-
-            //    of-three discriminator, which handles its own coverage
-            //    -> alpha conversion via [screenPxRange].
-            DecodedImage img = decode_image_file(lf.image_url(), ImageCrop{});
-            if (!img.ok()) {
-                fail("decode_image_file");
-                break;
+            // SDF atlas data MUST NOT be premultiplied — the worker
+            // also asserts this defensively, but we set it explicitly
+            // for clarity at the call site.
+            if (!loader_) {
+                loader_ = std::make_unique<AssetLoader>();
             }
-
-            auto tex = std::make_unique<Texture>();
-            if (!tex->upload_rgba8(img.width, img.height, img.pixels.get(),
-                                   TextureFilter::Linear,
-                                   TextureFilter::Linear,
-                                   /*generate_mipmaps=*/false,
-                                   /*premultiply_alpha=*/false)) {
-                fail("Texture::upload_rgba8");
-                break;
-            }
-            textures_->register_texture(lf.image_url(), std::move(tex));
-
-            // 4. Register the parsed font, remembering the atlas key so
-            //    the walker can resolve `fonts -> texture` indirectly.
-            std::printf("[declgl/font] '%s': %d glyphs, %d kernings, "
-                        "%dx%d atlas, lineHeight=%d base=%d range=%.1f\n",
-                        lf.name().c_str(),
-                        font->glyph_count(), font->kerning_count(),
-                        font->scaleW(), font->scaleH(),
-                        font->lineHeight(), font->base(),
-                        font->distanceRange());
-            fonts_->register_font(lf.name(), std::move(font), lf.image_url());
-
-            // 5. Ship the success event back to OCaml.
-            BackendEvent ev;
-            ev.mutable_font_loaded()->set_name(lf.name());
-            ship_event(ev);
+            DecodeJob job;
+            job.kind              = AssetKind::Font;
+            job.name              = lf.name();
+            job.image_url         = lf.image_url();
+            job.json_url          = lf.json_url();
+            job.premultiply_alpha = false;
+            loader_->enqueue(std::move(job));
             break;
         }
         case BackendCommand::kConfigRegl: {
@@ -592,6 +492,14 @@ bool Engine::exec_audio_cmd(const uint8_t* bytes, size_t len) {
 }
 
 void Engine::shutdown() {
+    // Stop the worker thread before tearing anything down. Pending
+    // ready-but-undrained assets are dropped on the floor here — by
+    // construction, OCaml hasn't received a *_loaded event for them
+    // yet, so it can't be holding any references that need cleanup.
+    if (loader_) {
+        loader_->stop();
+        loader_.reset();
+    }
     walker_.reset();
     programs_.reset();
     textures_.reset();
@@ -632,8 +540,122 @@ void Engine::ship_event(const mlregl::transport::backend::BackendEvent& ev) {
     event_sink_(reinterpret_cast<const uint8_t*>(buf.data()), buf.size());
 }
 
+void Engine::drain_ready_assets(std::size_t max_items) {
+    if (!loader_ || !textures_ || !fonts_) {
+        // Pre-StartRegl: GL not up yet, so we can't upload. Leave the
+        // ready queue alone; we'll come back next [render()] once
+        // [init_window_and_gl] has constructed the registries.
+        return;
+    }
+
+    using namespace mlregl::transport::backend;
+
+    std::vector<ReadyAsset> ready;
+    ready.reserve(max_items);
+    loader_->drain_ready(ready, max_items);
+
+    for (auto& r : ready) {
+        // ---- failure path (shared between texture / font) ----
+        if (!r.error.empty() || !r.image.ok()) {
+            std::fprintf(stderr,
+                         "[declgl] async load '%s' failed: %s\n",
+                         r.name.c_str(),
+                         r.error.empty() ? "decode/parse" : r.error.c_str());
+            BackendEvent ev;
+            if (r.kind == AssetKind::Texture) {
+                ev.mutable_texture_loadfail()->set_name(r.name);
+            } else {
+                ev.mutable_font_loadfail()->set_name(r.name);
+            }
+            ship_event(ev);
+            continue;
+        }
+
+        if (r.kind == AssetKind::Texture) {
+            using ProtoMin = mlregl::transport::backend::TextureMinOption;
+            using ProtoMag = mlregl::transport::backend::TextureMagOption;
+            const ProtoMin min_opt = static_cast<ProtoMin>(r.min_filter_enum);
+            const ProtoMag mag_opt = static_cast<ProtoMag>(r.mag_filter_enum);
+            const bool gen_mipmaps = min_filter_uses_mipmaps(min_opt);
+
+            // Worker has already premultiplied (if requested). Pass
+            // [premultiply_alpha=false] to upload_rgba8 to avoid a
+            // second pass over the buffer.
+            auto tex = std::make_unique<Texture>();
+            if (!tex->upload_rgba8(r.image.width, r.image.height,
+                                   r.image.pixels.get(),
+                                   to_filter_min(min_opt),
+                                   to_filter_mag(mag_opt),
+                                   gen_mipmaps,
+                                   /*premultiply_alpha=*/false)) {
+                std::fprintf(stderr,
+                             "[declgl] async load '%s': upload failed\n",
+                             r.name.c_str());
+                BackendEvent ev;
+                ev.mutable_texture_loadfail()->set_name(r.name);
+                ship_event(ev);
+                continue;
+            }
+
+            const int tw = tex->width();
+            const int th = tex->height();
+            textures_->register_texture(r.name, std::move(tex));
+
+            BackendEvent ev;
+            auto* loaded = ev.mutable_texture_loaded();
+            loaded->set_name(r.name);
+            loaded->set_width(static_cast<uint32_t>(tw));
+            loaded->set_height(static_cast<uint32_t>(th));
+            ship_event(ev);
+            continue;
+        }
+
+        // ---- Font ----
+        // [r.font] is the parsed BMFont metric table; [r.image] is the
+        // already-decoded MSDF atlas (NOT premultiplied, by design).
+        // We register the atlas under [image_url] so multiple fonts
+        // can reuse the same texture (mirrors JS behaviour).
+        auto tex = std::make_unique<Texture>();
+        if (!tex->upload_rgba8(r.image.width, r.image.height,
+                               r.image.pixels.get(),
+                               TextureFilter::Linear,
+                               TextureFilter::Linear,
+                               /*generate_mipmaps=*/false,
+                               /*premultiply_alpha=*/false)) {
+            std::fprintf(stderr,
+                         "[declgl] async load '%s': font atlas upload failed\n",
+                         r.name.c_str());
+            BackendEvent ev;
+            ev.mutable_font_loadfail()->set_name(r.name);
+            ship_event(ev);
+            continue;
+        }
+        textures_->register_texture(r.image_url, std::move(tex));
+
+        std::printf("[declgl/font] '%s': %d glyphs, %d kernings, "
+                    "%dx%d atlas, lineHeight=%d base=%d range=%.1f\n",
+                    r.name.c_str(),
+                    r.font->glyph_count(), r.font->kerning_count(),
+                    r.font->scaleW(), r.font->scaleH(),
+                    r.font->lineHeight(), r.font->base(),
+                    r.font->distanceRange());
+        fonts_->register_font(r.name, std::move(r.font), r.image_url);
+
+        BackendEvent ev;
+        ev.mutable_font_loaded()->set_name(r.name);
+        ship_event(ev);
+    }
+}
+
 void Engine::render(const mlregl::transport::render::Renderable& tree) {
     if (!walker_ || !render_ctx_) return;
+
+    // Pop and finish up to N decoded assets per frame. The cap keeps a
+    // burst of completed loads from spiking frame time. 4 is generous
+    // for typical workloads (a single PNG upload is ~µs to a couple of
+    // ms even for a few-MB texture); raise if you ever see assets
+    // backing up in the queue.
+    drain_ready_assets(/*max_items=*/4);
 
     // Update pixel viewport in case the window was resized. Resize the
     // FBO pool to match — we always keep palettes the size of the

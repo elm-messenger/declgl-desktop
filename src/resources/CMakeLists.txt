@@ -10,7 +10,11 @@ add_library(declgl_resources STATIC
     image_decoder.cc
     font.cc
     font_registry.cc
+    asset_loader.cc
 )
+
+# AssetLoader uses std::thread / std::condition_variable.
+find_package(Threads REQUIRED)
 
 set_target_properties(declgl_resources PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(declgl_resources PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -21,6 +25,7 @@ target_include_directories(declgl_resources PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(declgl_resources
     PUBLIC
         glad
+        Threads::Threads
     PRIVATE
         stb_image
         nlohmann_json::nlohmann_json

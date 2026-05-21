@@ -37,6 +37,7 @@ class TextureRegistry;
 class FontRegistry;
 class RenderableWalker;
 class FboPool;
+class AssetLoader;
 struct RenderContext;
 
 // Bridge → engine sink for serialized BackendEvent payloads. The
@@ -98,6 +99,13 @@ private:
     // was registered.
     void ship_event(const mlregl::transport::backend::BackendEvent& ev);
 
+    // Pop ready-asset records off [loader_] and finish them on the GL
+    // thread: glTexImage2D, register in TextureRegistry / FontRegistry,
+    // ship the corresponding _loaded / _loadfail event. Bounded per
+    // call to keep frame time stable when a flood of assets land at
+    // once. Called at the top of [render()].
+    void drain_ready_assets(std::size_t max_items);
+
     SDL_Window*    window_      = nullptr;
     SDL_GLContext  gl_ctx_      = nullptr;
     std::string    asset_root_;
@@ -112,6 +120,15 @@ private:
     std::unique_ptr<FboPool>          fbos_;
     std::unique_ptr<RenderableWalker> walker_;
     std::unique_ptr<RenderContext>    render_ctx_;
+
+    // Async asset decode pipeline. Owns one worker thread; safe to
+    // construct before the GL context exists since it never touches GL.
+    // Lives across the whole Engine lifetime: pre-StartRegl LoadTexture
+    // commands enqueue here too, and their decoded buffers wait in the
+    // ready queue until [render()] starts draining them. Destroyed
+    // before the GL context in [shutdown()] so the worker can't outlive
+    // anything it might hand off to.
+    std::unique_ptr<AssetLoader>      loader_;
 };
 
 // Static last-error string. Set by failing engine calls; cleared by
