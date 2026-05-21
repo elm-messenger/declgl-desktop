@@ -209,7 +209,7 @@ endforeach()
 foreach(_f IN LISTS _DECLGL_FRAMEWORKS)
     list(APPEND _SEXP_LINES "  ${_f}")
 endforeach()
-list(APPEND _SEXP_LINES "  -lc++")
+list(APPEND _SEXP_LINES "  -lstdc++")
 list(APPEND _SEXP_LINES ")")
 
 string(REPLACE ";" "\n" _SEXP_TEXT "${_SEXP_LINES}")
