@@ -31,7 +31,7 @@ protobuf_generate(
 )
 
 target_link_libraries(declgl_proto PUBLIC
-    protobuf::libprotobuf
+    protobuf::libprotobuf-lite
 )
 
 # Consumers do `#include "proto_gen/transport_backend.pb.h"`.
