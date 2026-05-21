@@ -179,8 +179,17 @@ if(APPLE)
         "-framework CoreBluetooth"
         "-framework Foundation"
     )
+    set(_DECLGL_SYSTEM_LIBS "")
+    set(_DECLGL_LINK_GROUP_START "")
+    set(_DECLGL_LINK_GROUP_END "")
 else()
     set(_DECLGL_FRAMEWORKS "")
+    set(_DECLGL_SYSTEM_LIBS
+        "-lGL"
+        "-ldl"
+    )
+    set(_DECLGL_LINK_GROUP_START "-Wl,--start-group")
+    set(_DECLGL_LINK_GROUP_END   "-Wl,--end-group")
 endif()
 
 # Build the absl sub-archive list by globbing what vcpkg installed. We
@@ -199,11 +208,20 @@ endforeach()
 set(_SEXP_LINES "(")
 list(APPEND _SEXP_LINES "  -L${_VCPKG_LIB}")
 list(APPEND _SEXP_LINES "  -L${CMAKE_BINARY_DIR}")
+if(_DECLGL_LINK_GROUP_START)
+    list(APPEND _SEXP_LINES "  ${_DECLGL_LINK_GROUP_START}")
+endif()
 list(APPEND _SEXP_LINES "  -lSDL3")
 list(APPEND _SEXP_LINES "  -lprotobuf")
 list(APPEND _SEXP_LINES "  -lutf8_range")
 list(APPEND _SEXP_LINES "  -lutf8_validity")
 foreach(_f IN LISTS _ABSL_LFLAGS)
+    list(APPEND _SEXP_LINES "  ${_f}")
+endforeach()
+if(_DECLGL_LINK_GROUP_END)
+    list(APPEND _SEXP_LINES "  ${_DECLGL_LINK_GROUP_END}")
+endif()
+foreach(_f IN LISTS _DECLGL_SYSTEM_LIBS)
     list(APPEND _SEXP_LINES "  ${_f}")
 endforeach()
 foreach(_f IN LISTS _DECLGL_FRAMEWORKS)
