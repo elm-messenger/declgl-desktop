@@ -320,6 +320,12 @@ void Engine::dispatch_backend_command(
             ProtoMin min_opt = ProtoMin::TEXTURE_MIN_OPTION_LINEAR;
             ProtoMag mag_opt = ProtoMag::TEXTURE_MAG_OPTION_LINEAR;
             ImageCrop crop{};
+            // Premultiply alpha at upload by default — see
+            // [Texture::upload_rgba8] for the full rationale. The
+            // proto field is `no_premultiply_alpha` (negated) so that
+            // unset / proto3-default callers get the new sane
+            // behaviour automatically.
+            bool premultiply = true;
             if (lt.has_options()) {
                 const auto& o = lt.options();
                 min_opt = o.min();
@@ -331,6 +337,7 @@ void Engine::dispatch_backend_command(
                     crop.width  = c.width();
                     crop.height = c.height();
                 }
+                premultiply = !o.no_premultiply_alpha();
             }
 
             std::printf("[declgl] load_texture name=%s url=%s mag=%s min=%s",
@@ -376,7 +383,8 @@ void Engine::dispatch_backend_command(
                                    img.pixels.get(),
                                    to_filter_min(min_opt),
                                    to_filter_mag(mag_opt),
-                                   gen_mipmaps)) {
+                                   gen_mipmaps,
+                                   premultiply)) {
                 fail("Texture::upload_rgba8");
                 break;
             }
@@ -457,6 +465,15 @@ void Engine::dispatch_backend_command(
             //    chain (msdfgen output is sized for the runtime), no
             //    crop. We register it under its [image_url] so multiple
             //    fonts can share the same atlas (matches JS).
+            //
+            //    *premultiply_alpha=false* is critical here: the three
+            //    channels of an MSDF atlas are signed-distance data,
+            //    not pre-attenuated colour. Multiplying RGB by alpha
+            //    would corrupt the signal at any texel where alpha<255
+            //    (e.g. soft edges introduced by msdfgen). Font texels
+            //    pass straight through to the [text.frag.glsl] median-
+            //    of-three discriminator, which handles its own coverage
+            //    -> alpha conversion via [screenPxRange].
             DecodedImage img = decode_image_file(lf.image_url(), ImageCrop{});
             if (!img.ok()) {
                 fail("decode_image_file");
@@ -467,7 +484,8 @@ void Engine::dispatch_backend_command(
             if (!tex->upload_rgba8(img.width, img.height, img.pixels.get(),
                                    TextureFilter::Linear,
                                    TextureFilter::Linear,
-                                   /*generate_mipmaps=*/false)) {
+                                   /*generate_mipmaps=*/false,
+                                   /*premultiply_alpha=*/false)) {
                 fail("Texture::upload_rgba8");
                 break;
             }

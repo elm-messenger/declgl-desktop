@@ -2,7 +2,9 @@
 //
 // Functionally equivalent to ml-regl-js/src/texture-centered/frag.glsl.
 // Same sampling as `texture`, but reads the Y-flipped `vuv` produced by
-// the centered vertex shader.
+// the centered vertex shader. The bound texture is uploaded in
+// premultiplied form (see [resources/texture.cc]), so we just scale
+// the sampled result by the per-call [alpha] and emit it directly.
 //
 // Public interface:
 //   uniform sampler2D tex         bound on TEXUNIT0 by the walker
@@ -19,6 +21,5 @@ in  vec2  vuv;
 out vec4  fragColor;
 
 void main() {
-    vec4 sampled = texture(tex, vuv) * alpha;
-    fragColor = vec4(sampled.rgb * sampled.a, sampled.a);
+    fragColor = texture(tex, vuv) * alpha;
 }

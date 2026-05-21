@@ -40,11 +40,22 @@ public:
     //
     // [generate_mipmaps] is true iff [min_filter] is one of the four
     // mipmap modes — the caller decides; we don't infer.
+    //
+    // [premultiply_alpha] (default true): when set, the loader makes
+    // a transient CPU-side copy of the buffer with each RGB channel
+    // multiplied by alpha (rounded), so the texture is stored in
+    // premultiplied form. This is the correct representation for the
+    // engine's (GL_ONE, GL_ONE_MINUS_SRC_ALPHA) blend equation and it
+    // also avoids the straight-alpha edge-bleed that bilinear
+    // filtering otherwise produces around translucent edges. Pass
+    // false for non-colour data (e.g. SDF/MSDF atlases) where
+    // multiplying RGB by alpha would corrupt the signal.
     bool upload_rgba8(int width, int height,
                       const uint8_t* pixels,
                       TextureFilter min_filter,
                       TextureFilter mag_filter,
-                      bool generate_mipmaps);
+                      bool generate_mipmaps,
+                      bool premultiply_alpha = true);
 
     GLuint        id()      const { return id_; }
     int           width()   const { return width_; }

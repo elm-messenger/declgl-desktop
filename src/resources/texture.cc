@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <utility>
+#include <vector>
 
 namespace declgl {
 
@@ -19,6 +20,30 @@ GLint to_gl_filter(TextureFilter f) {
         case TextureFilter::LinearMipmapLinear:    return GL_LINEAR_MIPMAP_LINEAR;
     }
     return GL_LINEAR;
+}
+
+// Multiply each texel's RGB by its alpha, rounded so 0xff*0xff/0xff = 0xff
+// exactly. This is the standard "+ 127 / 255" rounding from libpng / pillow
+// — the exact same constant the JS canvas / WebGL `premultiplyAlpha: true`
+// path uses internally, so behaviour stays bit-equivalent across backends.
+//
+// We allocate a fresh std::vector instead of mutating the caller's buffer
+// because the caller's buffer can be a stb_image-owned arena that the
+// renderer expects to remain straight-alpha (e.g. for re-decoding into
+// other crops or for downstream debugging dumps). Allocation cost is
+// O(width*height*4) bytes once at upload — negligible.
+std::vector<uint8_t> premultiply_rgba(const uint8_t* src, int n_pixels) {
+    std::vector<uint8_t> out(static_cast<size_t>(n_pixels) * 4);
+    for (size_t i = 0; i < out.size(); i += 4) {
+        const uint8_t a = src[i + 3];
+        // (x*a + 127) / 255: rounded division, exact at the 0 and 255
+        // endpoints, and bit-equivalent to the formula libpng uses.
+        out[i + 0] = static_cast<uint8_t>((src[i + 0] * a + 127) / 255);
+        out[i + 1] = static_cast<uint8_t>((src[i + 1] * a + 127) / 255);
+        out[i + 2] = static_cast<uint8_t>((src[i + 2] * a + 127) / 255);
+        out[i + 3] = a;
+    }
+    return out;
 }
 
 }  // namespace
@@ -46,7 +71,8 @@ bool Texture::upload_rgba8(int width, int height,
                            const uint8_t* pixels,
                            TextureFilter min_filter,
                            TextureFilter mag_filter,
-                           bool generate_mipmaps) {
+                           bool generate_mipmaps,
+                           bool premultiply_alpha) {
     if (id_) {
         glDeleteTextures(1, &id_);
         id_ = 0;
@@ -64,8 +90,19 @@ bool Texture::upload_rgba8(int width, int height,
     glGetIntegerv(GL_UNPACK_ALIGNMENT, &prev_unpack);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
+    // Upload either the caller's buffer or a transient premultiplied
+    // copy. The vector is held in scope until after [glTexImage2D]
+    // returns so its storage stays valid; the driver only needs the
+    // pointer for the duration of that call.
+    const uint8_t* upload_ptr = pixels;
+    std::vector<uint8_t> pm_buffer;
+    if (premultiply_alpha) {
+        pm_buffer = premultiply_rgba(pixels, width * height);
+        upload_ptr = pm_buffer.data();
+    }
+
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+                 GL_RGBA, GL_UNSIGNED_BYTE, upload_ptr);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, prev_unpack);
 

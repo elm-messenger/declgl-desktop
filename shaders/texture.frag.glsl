@@ -2,8 +2,11 @@
 //
 // Functionally equivalent to ml-regl-js/src/texture/frag.glsl —
 // samples the bound texture at `uv`, multiplies by the per-call
-// `alpha`, and emits premultiplied RGBA so it composites correctly
-// with the engine's GL_ONE / GL_ONE_MINUS_SRC_ALPHA blending.
+// `alpha`, and emits the result. Composites correctly with the
+// engine's GL_ONE / GL_ONE_MINUS_SRC_ALPHA blending because the
+// underlying texture is uploaded in premultiplied form by
+// [resources/texture.cc] (see its [upload_rgba8] doc comment for
+// the rationale and the `no_premultiply_alpha` opt-out path).
 //
 // Public interface:
 //   uniform sampler2D tex         bound on TEXUNIT0 by the walker
@@ -23,6 +26,8 @@ in  vec2  uv;
 out vec4  fragColor;
 
 void main() {
-    vec4 sampled = texture(tex, uv) * alpha;
-    fragColor = vec4(sampled.rgb * sampled.a, sampled.a);
+    // Texels are already premultiplied at upload time; scaling by a
+    // scalar [alpha] preserves the premultiplied invariant
+    // ((R*A, G*A, B*A, A) * a' = (R*A*a', G*A*a', B*A*a', A*a')).
+    fragColor = texture(tex, uv) * alpha;
 }
