@@ -50,12 +50,3 @@ target_link_libraries(declgl_caml_bridge
         declgl_proto
         SDL3::SDL3
 )
-
-# Caml stubs declare extern "C" CAMLprim symbols; they MUST end up in the
-# final .a even if no other TU references them. The OCaml exe linker
-# resolves them via -ldeclgl when it links the user's binary.
-if(APPLE)
-    target_link_options(declgl_caml_bridge PUBLIC
-        "-Wl,-keep_dwarf_unwind"
-    )
-endif()

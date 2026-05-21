@@ -19,7 +19,6 @@
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_TARGET_TRIPLET": "arm64-osx",
         "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0"
       }
     },
@@ -27,7 +26,7 @@
       "name": "mac-release",
       "displayName": "macOS Release (Apple Silicon)",
       "inherits": "mac-debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
       "name": "linux-debug",
@@ -35,15 +34,14 @@
       "inherits": "base",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_TARGET_TRIPLET": "x64-linux"
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
       "name": "linux-release",
       "displayName": "Linux Release",
       "inherits": "linux-debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
   ],
   "buildPresets": [
