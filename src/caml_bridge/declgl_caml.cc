@@ -263,6 +263,7 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch& batch
                         std::fprintf(stderr,
                                      "[declgl/bridge] init_window_and_gl failed: %s\n",
                                      declgl::last_error());
+                        return false;
                     }
                 } else {
                     std::fprintf(stderr,

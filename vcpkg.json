@@ -3,10 +3,6 @@
   "version-string": "0.0.1",
   "description": "C++/SDL3/OpenGL 3.3 desktop backend for the ml-regl OCaml frontend.",
   "dependencies": [
-    {
-      "name": "sdl3",
-      "features": ["alsa"]
-    },
     "protobuf",
     "glm",
     "nlohmann-json"
