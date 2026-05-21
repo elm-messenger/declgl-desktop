@@ -4,7 +4,7 @@
 # texture lifecycle: decode bytes → upload to GPU → register by name.
 # Engine talks to this module; renderer/walker reads from it.
 
-add_library(declgl_resources STATIC
+add_library(declgl_resources OBJECT
     texture.cc
     texture_registry.cc
     image_decoder.cc
@@ -19,7 +19,7 @@ find_package(Threads REQUIRED)
 set_target_properties(declgl_resources PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(declgl_resources PUBLIC ${CMAKE_SOURCE_DIR}/src)
 
-# stb_image is a vendored static lib living in third_party/. We pull
+# stb_image is a vendored object lib living in third_party/. We pull
 # its include path AND its TU through PUBLIC so consumers (engine.cc)
 # can include "resources/*.h" without separately depending on stb.
 target_link_libraries(declgl_resources

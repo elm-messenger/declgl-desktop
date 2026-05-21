@@ -1,4 +1,4 @@
-add_library(declgl_engine STATIC
+add_library(declgl_engine OBJECT
     engine.cc
 )
 

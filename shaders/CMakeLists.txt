@@ -1,4 +1,4 @@
-# shaders/CMakeLists.txt — vendor JS-built-in GLSL into a static library.
+# shaders/CMakeLists.txt — vendor JS-built-in GLSL into an object library.
 #
 # Each .glsl file under this directory is embedded as a `const char*` in
 # the generated `builtin_shaders.cc`. The lookup is exposed via
@@ -118,6 +118,6 @@ add_custom_command(
     VERBATIM
 )
 
-add_library(declgl_shaders STATIC ${_GEN_SRC} ${_GEN_HDR})
+add_library(declgl_shaders OBJECT ${_GEN_SRC} ${_GEN_HDR})
 set_target_properties(declgl_shaders PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(declgl_shaders PUBLIC ${CMAKE_CURRENT_BINARY_DIR})

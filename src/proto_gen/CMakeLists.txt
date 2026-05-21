@@ -1,7 +1,7 @@
 # Generated protobuf C++ sources for declgl-desktop.
 #
 # We collect the four .proto files from the sibling `proto/` directory and
-# turn them into a small static library (`declgl_proto`) that other parts of
+# turn them into a small object library (`declgl_proto`) that other parts of
 # the engine can link against. Files are generated into the build tree, not
 # into the source tree.
 
@@ -17,7 +17,7 @@ set(_PROTO_FILES
 # path is always `#include "proto_gen/transport_*.pb.h"`.
 set(_PROTO_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
-add_library(declgl_proto STATIC)
+add_library(declgl_proto OBJECT)
 set_target_properties(declgl_proto PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # protobuf_generate() is the modern per-target API. It attaches generated

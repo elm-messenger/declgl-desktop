@@ -1,10 +1,10 @@
 # stb (image loader) — vendored single-header.
 #
 # We compile the implementation into one TU (`stb_image.cc`) so it can be
-# linked once into the bundle. Consumers just `#include "stb_image.h"`
+# linked once into the final bundle. Consumers just `#include "stb_image.h"`
 # without defining STB_IMAGE_IMPLEMENTATION themselves.
 
-add_library(stb_image STATIC
+add_library(stb_image OBJECT
     stb_image.cc
 )
 

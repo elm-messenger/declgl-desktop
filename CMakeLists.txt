@@ -71,67 +71,35 @@ add_subdirectory(src/engine)
 add_subdirectory(src/caml_bridge)
 
 # ----------------------------------------------------------------------------
-# libdeclgl.a — a single merged static archive that the OCaml dune side
-# picks up via (foreign_archives declgl). It bundles every first-party
-# object file the OCaml-linked binary needs at link time:
+# libdeclgl.a — a single static archive that the OCaml dune side picks up
+# via (foreign_archives declgl). We build it directly from the object files
+# emitted by the first-party/object-library targets that the OCaml-linked
+# binary needs at link time:
 #   - declgl_caml_bridge  (extern "C" CAMLprim entry points)
 #   - declgl_engine       (SDL/GL + per-command dispatch)
 #   - declgl_proto        (generated protobuf C++ stubs)
 #   - glad                (GL loader)
 #
 # The third-party archives we depend on (SDL3, protobuf, abseil, ...) stay
-# as separate -l flags fed to dune via c_library_flags — bundling those
-# would balloon the archive and is brittle across vcpkg layouts.
-#
-# On macOS we use libtool -static (handles fat archives + dedupes object
-# names); on other Unixes we use `ar -M` with a MRI script.
+# as separate -l flags fed to dune via c_library_flags — folding those into
+# libdeclgl.a would balloon the archive and is brittle across vcpkg layouts.
 # ----------------------------------------------------------------------------
-set(_DECLGL_BUNDLE_INPUTS
-    $<TARGET_FILE:declgl_caml_bridge>
-    $<TARGET_FILE:declgl_engine>
-    $<TARGET_FILE:declgl_renderer>
-    $<TARGET_FILE:declgl_gpu>
-    $<TARGET_FILE:declgl_resources>
-    $<TARGET_FILE:declgl_shaders>
-    $<TARGET_FILE:declgl_proto>
-    $<TARGET_FILE:glad>
-    $<TARGET_FILE:stb_image>
+add_library(declgl STATIC
+    $<TARGET_OBJECTS:declgl_caml_bridge>
+    $<TARGET_OBJECTS:declgl_engine>
+    $<TARGET_OBJECTS:declgl_renderer>
+    $<TARGET_OBJECTS:declgl_gpu>
+    $<TARGET_OBJECTS:declgl_resources>
+    $<TARGET_OBJECTS:declgl_shaders>
+    $<TARGET_OBJECTS:declgl_proto>
+    $<TARGET_OBJECTS:glad>
+    $<TARGET_OBJECTS:stb_image>
 )
-set(_DECLGL_BUNDLE_OUT "${CMAKE_BINARY_DIR}/libdeclgl.a")
 
-if(APPLE)
-    add_custom_command(
-        OUTPUT  ${_DECLGL_BUNDLE_OUT}
-        COMMAND libtool -static -o ${_DECLGL_BUNDLE_OUT} ${_DECLGL_BUNDLE_INPUTS}
-        DEPENDS declgl_caml_bridge declgl_engine declgl_renderer declgl_gpu declgl_resources declgl_shaders declgl_proto glad stb_image
-        COMMENT "Bundling libdeclgl.a"
-        VERBATIM
-    )
-else()
-    # GNU ar MRI script approach. Generated at build time.
-    set(_DECLGL_MRI_SCRIPT "${CMAKE_BINARY_DIR}/declgl_bundle.mri")
-    add_custom_command(
-        OUTPUT  ${_DECLGL_BUNDLE_OUT}
-        COMMAND ${CMAKE_COMMAND} -E echo "create ${_DECLGL_BUNDLE_OUT}"   > ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_caml_bridge>" >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_engine>"      >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_renderer>"    >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_gpu>"         >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_resources>"   >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_shaders>"     >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:declgl_proto>"       >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:glad>"               >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "addlib $<TARGET_FILE:stb_image>"          >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "save"                                     >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E echo "end"                                      >> ${_DECLGL_MRI_SCRIPT}
-        COMMAND ${CMAKE_AR} -M < ${_DECLGL_MRI_SCRIPT}
-        DEPENDS declgl_caml_bridge declgl_engine declgl_renderer declgl_gpu declgl_resources declgl_shaders declgl_proto glad stb_image
-        COMMENT "Bundling libdeclgl.a"
-        VERBATIM
-    )
-endif()
-
-add_custom_target(declgl ALL DEPENDS ${_DECLGL_BUNDLE_OUT})
+set_target_properties(declgl PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    POSITION_INDEPENDENT_CODE ON
+)
 
 # ----------------------------------------------------------------------------
 # Dune integration: emit two artefacts that the OCaml side ingests via

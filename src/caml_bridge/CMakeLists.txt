@@ -1,6 +1,6 @@
 # caml_bridge — OCaml ↔ C++ glue for the desktop ml_regl backend.
 #
-# Builds a static archive that exposes the two C symbols the OCaml side
+# Builds an object library that exposes the two C symbols the OCaml side
 # declares as `external`:
 #   - declgl_ship_backend_cmd
 #   - declgl_ship_audio_cmd
@@ -29,7 +29,7 @@ endif()
 
 message(STATUS "[caml_bridge] OCaml stdlib at: ${OCAML_LIB_DIR}")
 
-add_library(declgl_caml_bridge STATIC
+add_library(declgl_caml_bridge OBJECT
     declgl_caml.cc
 )
 

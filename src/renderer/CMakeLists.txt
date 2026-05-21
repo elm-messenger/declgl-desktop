@@ -1,4 +1,4 @@
-add_library(declgl_renderer STATIC
+add_library(declgl_renderer OBJECT
     renderable_walker.cc
 )
 

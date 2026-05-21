@@ -1,7 +1,7 @@
 # GLAD2 GL 3.3 Core loader (vendored).
 # Generated from https://gen.glad.sh/ — regenerate by hand if the GL version changes.
 
-add_library(glad STATIC
+add_library(glad OBJECT
     src/gl.c
 )
 
