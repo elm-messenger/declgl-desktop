@@ -17,7 +17,10 @@ project owns the window, GL renderer, audio, and input.
 | CMake       | 4.x (≥ 3.20)   | Build system                                |
 | Ninja       | 1.13+          | Generator used by `CMakePresets.json`       |
 | vcpkg       | 2026-04-08+    | Manifest mode; toolchain auto-picked        |
+| SDL3        | 3.4.8         | Windowing and input library                 |
 | C++ toolchain | Apple Clang 17 / GCC 11+ / MSVC 2022 | C++17                |
+
+SDL3 packages in vcpkg requires building from source, which have lots of system dependencies so we use the pre-built packages from your system. You may not want to install protobuf in your system to build because there might be a conflict between vcpkg's protobuf package and the one in your system.
 
 ## Setting up the environment
 
