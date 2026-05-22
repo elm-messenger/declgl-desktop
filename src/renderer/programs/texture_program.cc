@@ -67,8 +67,9 @@ bool TextureProgram::prepare(const ProgramCallFields &fields,
 	// Static: indices
 	out_state.static_indices = kQuadIndices;
 
-	// Uniform: texture
-	out_state.set_uniform_tex("texture", tex->id());
+	// GLSL sampler is named `tex` (not `texture`) to avoid shadowing the
+	// GLSL texture() function.
+	out_state.set_uniform_tex("tex", tex->id());
 
 	// Uniform: alpha (default 1.0)
 	float alpha = 1.0f;
@@ -142,7 +143,7 @@ bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: texture
-	out_state.set_uniform_tex("texture", tex->id());
+	out_state.set_uniform_tex("tex", tex->id());
 
 	// Uniform: alpha (default 1.0)
 	float alpha = 1.0f;
@@ -195,7 +196,7 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: texture
-	out_state.set_uniform_tex("texture", tex->id());
+	out_state.set_uniform_tex("tex", tex->id());
 
 	// Uniform: posize
 	out_state.set_uniform_f4(
@@ -287,7 +288,7 @@ bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: texture
-	out_state.set_uniform_tex("texture", tex->id());
+	out_state.set_uniform_tex("tex", tex->id());
 
 	// Uniform: posize
 	out_state.set_uniform_f4(

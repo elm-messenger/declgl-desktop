@@ -149,7 +149,7 @@ bool AlphaMultProgram::prepare(
 	// Builtin texture
 	auto it = builtin_textures.find("texture");
 	if (it != builtin_textures.end()) {
-		out_state.set_uniform_tex("texture", it->second);
+		out_state.set_uniform_tex("tex", it->second);
 	}
 
 	return true;
@@ -193,7 +193,7 @@ bool ColorMultProgram::prepare(
 	// Builtin texture
 	auto it = builtin_textures.find("texture");
 	if (it != builtin_textures.end()) {
-		out_state.set_uniform_tex("texture", it->second);
+		out_state.set_uniform_tex("tex", it->second);
 	}
 
 	return true;
