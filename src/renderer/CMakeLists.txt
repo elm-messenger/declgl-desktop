@@ -8,6 +8,8 @@ add_library(declgl_renderer OBJECT
     programs/texture_program.cc
     programs/poly_program.cc
     programs/effect_programs.cc
+    programs/textbox_program.cc
+    programs/dynamic_program.cc
 )
 
 set_target_properties(declgl_renderer PROPERTIES POSITION_INDEPENDENT_CODE ON)

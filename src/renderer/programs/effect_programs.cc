@@ -10,7 +10,9 @@ namespace programs
 {
 
 bool PaletteProgram::prepare(const ProgramCallFields &fields,
-			     const RenderContext &ctx, DrawState &out_state)
+			     const RenderContext &ctx,
+			     const std::unordered_map<std::string, GLuint> &builtin_textures,
+			     DrawState &out_state)
 {
 	// palette program is used internally for FBO blitting
 	// It samples a texture and draws fullscreen quad
@@ -26,15 +28,24 @@ bool PaletteProgram::prepare(const ProgramCallFields &fields,
 	// Static: indices
 	out_state.static_indices = kQuadIndices;
 
-	// Note: 'texture' uniform is set by caller (bind_palette_sampler)
-	// Built-in uniforms are also set by caller as needed
+	// Builtin texture: look for "tex", "fbo", or "texture"
+	auto it = builtin_textures.find("tex");
+	if (it == builtin_textures.end())
+		it = builtin_textures.find("fbo");
+	if (it == builtin_textures.end())
+		it = builtin_textures.find("texture");
+	if (it != builtin_textures.end()) {
+		out_state.set_uniform_tex("tex", it->second);
+	}
 
 	return true;
 }
 
-bool DefaultCompositorProgram::prepare(const ProgramCallFields &fields,
-				       const RenderContext &ctx,
-				       DrawState &out_state)
+bool DefaultCompositorProgram::prepare(
+	const ProgramCallFields &fields,
+	const RenderContext &ctx,
+	const std::unordered_map<std::string, GLuint> &builtin_textures,
+	DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -57,13 +68,24 @@ bool DefaultCompositorProgram::prepare(const ProgramCallFields &fields,
 		out_state.set_uniform_i1("mode", 0);
 	}
 
-	// Note: t1, t2 uniforms are set by caller (FBO textures)
+	// Builtin textures: t1 and t2
+	auto it1 = builtin_textures.find("t1");
+	if (it1 != builtin_textures.end()) {
+		out_state.set_uniform_tex("t1", it1->second);
+	}
+	auto it2 = builtin_textures.find("t2");
+	if (it2 != builtin_textures.end()) {
+		out_state.set_uniform_tex("t2", it2->second);
+	}
 
 	return true;
 }
 
-bool CompFadeProgram::prepare(const ProgramCallFields &fields,
-			      const RenderContext &ctx, DrawState &out_state)
+bool CompFadeProgram::prepare(
+	const ProgramCallFields &fields,
+	const RenderContext &ctx,
+	const std::unordered_map<std::string, GLuint> &builtin_textures,
+	DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -85,13 +107,24 @@ bool CompFadeProgram::prepare(const ProgramCallFields &fields,
 	}
 	out_state.set_uniform_f1("t", t);
 
-	// Note: t1, t2 uniforms are set by caller
+	// Builtin textures: t1 and t2
+	auto it1 = builtin_textures.find("t1");
+	if (it1 != builtin_textures.end()) {
+		out_state.set_uniform_tex("t1", it1->second);
+	}
+	auto it2 = builtin_textures.find("t2");
+	if (it2 != builtin_textures.end()) {
+		out_state.set_uniform_tex("t2", it2->second);
+	}
 
 	return true;
 }
 
-bool AlphaMultProgram::prepare(const ProgramCallFields &fields,
-			       const RenderContext &ctx, DrawState &out_state)
+bool AlphaMultProgram::prepare(
+	const ProgramCallFields &fields,
+	const RenderContext &ctx,
+	const std::unordered_map<std::string, GLuint> &builtin_textures,
+	DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -113,13 +146,20 @@ bool AlphaMultProgram::prepare(const ProgramCallFields &fields,
 	}
 	out_state.set_uniform_f1("alpha", alpha);
 
-	// Note: texture uniform set by caller
+	// Builtin texture
+	auto it = builtin_textures.find("texture");
+	if (it != builtin_textures.end()) {
+		out_state.set_uniform_tex("texture", it->second);
+	}
 
 	return true;
 }
 
-bool ColorMultProgram::prepare(const ProgramCallFields &fields,
-			       const RenderContext &ctx, DrawState &out_state)
+bool ColorMultProgram::prepare(
+	const ProgramCallFields &fields,
+	const RenderContext &ctx,
+	const std::unordered_map<std::string, GLuint> &builtin_textures,
+	DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -150,7 +190,11 @@ bool ColorMultProgram::prepare(const ProgramCallFields &fields,
 		out_state.set_uniform_f4("color", 1, 1, 1, 1);
 	}
 
-	// Note: texture uniform set by caller
+	// Builtin texture
+	auto it = builtin_textures.find("texture");
+	if (it != builtin_textures.end()) {
+		out_state.set_uniform_tex("texture", it->second);
+	}
 
 	return true;
 }

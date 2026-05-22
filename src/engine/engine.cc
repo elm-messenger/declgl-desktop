@@ -7,10 +7,10 @@
 #include <string>
 
 #include "audio/audio_engine.h"
-#include "gpu/program_registry.h"
 #include "gpu/fbo_pool.h"
 #include "log/log.h"
 #include "renderer/decl_program_registry.h"
+#include "renderer/programs/dynamic_program.h"
 #include "renderer/render_context.h"
 #include "renderer/renderable_walker.h"
 #include "resources/asset_loader.h"
@@ -266,16 +266,15 @@ bool Engine::init_window_and_gl(
 				start.fbo_num());
 	}
 
-	// M3.B: spin up the program registry, render context and walker.
+	// M3.B: spin up the declarative program registry, render context and walker.
 	// These all need an active GL context, so we construct them here
 	// rather than in [init_decoders_only].
-	programs_ = std::make_unique<ProgramRegistry>();
 	decl_programs_ = std::make_unique<DeclProgramRegistry>();
 	textures_ = std::make_unique<TextureRegistry>();
 	fonts_ = std::make_unique<FontRegistry>();
 	fbos_ = std::make_unique<FboPool>();
 	render_ctx_ = std::make_unique<RenderContext>();
-	walker_ = std::make_unique<RenderableWalker>(*programs_, *decl_programs_);
+	walker_ = std::make_unique<RenderableWalker>(*decl_programs_);
 	render_ctx_->textures = textures_.get();
 	render_ctx_->fonts = fonts_.get();
 	render_ctx_->fbos = fbos_.get();
@@ -319,71 +318,6 @@ bool Engine::init_window_and_gl(
 	glEnable(GL_BLEND);
 	glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
 			    GL_ONE_MINUS_SRC_ALPHA);
-
-	// Register every builtin requested by StartRegl. Names that have no
-	// vendored GLSL produce a warning but don't fail startup — that lets
-	// us light up programs incrementally across milestones.
-	if (start.has_builtin_programs()) {
-		for (const auto &name : start.builtin_programs().values()) {
-			programs_->register_builtin(name);
-		}
-	}
-
-	// Mirror the JS backend, which makes every shader in its vendored
-	// {frag,vert}.glsl tables unconditionally available regardless of
-	// whether the user enumerated them in [builtin_programs]. As we
-	// port more shaders we extend this list. Already-registered names
-	// are short-circuited.
-	//
-	// Most builtins use their own (vert, frag) pair under the same
-	// name, but two need cross-program pairing to match the JS
-	// backend's behaviour:
-	//   - `roundedRect` reuses circle's vert with its own frag
-	//   - `quad` and `poly` reuse the entire `triangle` pair
-	struct BuiltinSpec {
-		const char *name;
-		const char *vert_from; // builtin name to pull vertex source
-		const char *frag_from; // builtin name to pull fragment source
-	};
-	static const BuiltinSpec kAlwaysOnBuiltins[] = {
-		// M3.B: pure fill triangle
-		{ "triangle", "triangle", "triangle" },
-		// M3.C: more 2D primitives
-		{ "rect", "rect", "rect" },
-		{ "circle", "circle", "circle" },
-		{ "roundedRect", "circle", "roundedRect" },
-		{ "quad", "triangle", "triangle" },
-		{ "poly", "triangle", "triangle" },
-		// M3.D: textured primitives. `texture` and `textureCropped`
-		// share a single (vert, frag) pair — the difference is whether
-		// the walker sources the per-vertex `texc` from the call or
-		// from a hardcoded fullscreen-UV table. Likewise
-		// `centeredCroppedTexture` reuses the centered frag (both
-		// read the `vuv` varying).
-		{ "texture", "texture", "texture" },
-		{ "textureCropped", "texture", "texture" },
-		{ "centeredTexture", "textureCentered", "textureCentered" },
-		{ "centeredCroppedTexture", "textureCroppedCentered",
-		  "textureCentered" },
-		// M3.E: effect & compositor programs. Every one of these uses
-		// the shared [effect.vert.glsl] which projects the unit-quad
-		// corner directly to NDC and passes the texc through as `uv`.
-		// The differences are entirely in the fragment shader.
-		{ "palette", "effect", "palette" },
-		{ "defaultCompositor", "effect", "defaultCompositor" },
-		{ "compFade", "effect", "compFade" },
-		{ "alphamult", "effect", "alphamult" },
-		{ "colormult", "effect", "colormult" },
-		// M3.F: MSDF text. Single program; the walker generates the
-		// per-frame quad VBO from the [Font]'s glyph table on demand.
-		{ "textbox", "text", "text" },
-	};
-	for (const auto &s : kAlwaysOnBuiltins) {
-		if (!programs_->get(s.name)) {
-			programs_->register_builtin_alias(s.name, s.vert_from,
-							  s.frag_from);
-		}
-	}
 
 	// Register and compile declarative programs
 	register_builtin_decl_programs(*decl_programs_);
@@ -493,11 +427,21 @@ void Engine::dispatch_backend_command(
 	case BackendCommand::kCreateProgram: {
 		const auto &cp = cmd.create_program();
 		DECLGL_LOG_INFO("create_program name={}", cp.name());
-		if (programs_ && cp.has_program()) {
-			programs_->register_program(cp.name(),
-						    cp.program().vert(),
-						    cp.program().frag());
+		BackendEvent ev;
+		if (decl_programs_ && cp.has_program()) {
+			auto prog = std::make_unique<programs::DynamicProgram>(
+				cp.name(), cp.program());
+			if (prog->compile()) {
+				decl_programs_->register_program(
+					std::move(prog));
+				ev.mutable_program_created()->set_name(
+					cp.name());
+				ship_event(ev);
+				break;
+			}
 		}
+		ev.mutable_program_createfail()->set_name(cp.name());
+		ship_event(ev);
 		break;
 	}
 	case BackendCommand::kLoadAudio: {
@@ -641,7 +585,6 @@ void Engine::shutdown()
 	// callback firing into freed memory.
 	audio_.reset();
 	walker_.reset();
-	programs_.reset();
 	decl_programs_.reset();
 	textures_.reset();
 	fonts_.reset();

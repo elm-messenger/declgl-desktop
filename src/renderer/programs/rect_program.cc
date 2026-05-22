@@ -8,7 +8,9 @@ namespace programs
 {
 
 bool RectProgram::prepare(const ProgramCallFields &fields,
-			  const RenderContext &ctx, DrawState &out_state)
+			  const RenderContext &ctx,
+			  const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 

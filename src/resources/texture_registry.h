@@ -2,9 +2,8 @@
 
 // resources/texture_registry.h — name → Texture map.
 //
-// Parallel structure to ProgramRegistry; the engine owns one. Used by
-// the renderable walker to resolve a `texture` field's string value to
-// a GL texture handle for binding.
+// Engine-owned registry used by declarative programs to resolve texture
+// field string values to GL texture handles for binding.
 
 #include "resources/texture.h"
 

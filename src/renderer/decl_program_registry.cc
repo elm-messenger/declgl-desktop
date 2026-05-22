@@ -9,6 +9,7 @@
 #include "renderer/programs/texture_program.h"
 #include "renderer/programs/poly_program.h"
 #include "renderer/programs/effect_programs.h"
+#include "renderer/programs/textbox_program.h"
 
 namespace declgl
 {
@@ -18,7 +19,8 @@ bool DeclProgramRegistry::compile_all()
 	bool ok = true;
 	for (auto &[name, prog] : programs_) {
 		if (!prog->compile()) {
-			DECLGL_LOG_ERROR("failed to compile program '{}'", name);
+			DECLGL_LOG_ERROR("failed to compile program '{}'",
+					 name);
 			ok = false;
 		}
 	}
@@ -28,7 +30,8 @@ bool DeclProgramRegistry::compile_all()
 void register_builtin_decl_programs(DeclProgramRegistry &registry)
 {
 	// Primitives
-	registry.register_program(std::make_unique<programs::TriangleProgram>());
+	registry.register_program(
+		std::make_unique<programs::TriangleProgram>());
 	registry.register_program(std::make_unique<programs::RectProgram>());
 	registry.register_program(std::make_unique<programs::CircleProgram>());
 	registry.register_program(
@@ -49,11 +52,15 @@ void register_builtin_decl_programs(DeclProgramRegistry &registry)
 	registry.register_program(std::make_unique<programs::PaletteProgram>());
 	registry.register_program(
 		std::make_unique<programs::DefaultCompositorProgram>());
-	registry.register_program(std::make_unique<programs::CompFadeProgram>());
-	registry.register_program(std::make_unique<programs::AlphaMultProgram>());
-	registry.register_program(std::make_unique<programs::ColorMultProgram>());
+	registry.register_program(
+		std::make_unique<programs::CompFadeProgram>());
+	registry.register_program(
+		std::make_unique<programs::AlphaMultProgram>());
+	registry.register_program(
+		std::make_unique<programs::ColorMultProgram>());
 
-	// Note: textbox is more complex and will be added later
+	// Textbox (MSDF text rendering)
+	registry.register_program(std::make_unique<programs::TextboxProgram>());
 }
 
 } // namespace declgl

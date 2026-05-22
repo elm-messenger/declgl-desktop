@@ -24,6 +24,7 @@ class PaletteProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     protected:
@@ -49,6 +50,7 @@ class DefaultCompositorProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     protected:
@@ -73,6 +75,7 @@ class CompFadeProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     protected:
@@ -97,6 +100,7 @@ class AlphaMultProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     protected:
@@ -121,6 +125,7 @@ class ColorMultProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     protected:

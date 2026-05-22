@@ -27,6 +27,7 @@ class TextureProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
 	// Helper: resolve texture from field (public for use by related programs)
@@ -47,6 +48,7 @@ class TextureCroppedProgram : public TextureProgram {
 	std::string_view name() const override { return "textureCropped"; }
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 };
 
@@ -65,6 +67,7 @@ class CenteredTextureProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     protected:
@@ -93,6 +96,7 @@ class CenteredCroppedTextureProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     protected:

@@ -29,7 +29,9 @@ const Texture *TextureProgram::resolve_texture(const ProgramCallFields &fields,
 }
 
 bool TextureProgram::prepare(const ProgramCallFields &fields,
-			     const RenderContext &ctx, DrawState &out_state)
+			     const RenderContext &ctx,
+			     const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			     DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -85,6 +87,7 @@ bool TextureProgram::prepare(const ProgramCallFields &fields,
 
 bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 				    const RenderContext &ctx,
+				    const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
 				    DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -158,6 +161,7 @@ bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 
 bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 				     const RenderContext &ctx,
+				     const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
 				     DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -226,6 +230,7 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 
 bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 					    const RenderContext &ctx,
+					    const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
 					    DrawState &out_state)
 {
 	using mlregl::transport::common::Value;

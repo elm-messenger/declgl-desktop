@@ -8,7 +8,9 @@ namespace programs
 {
 
 bool CircleProgram::prepare(const ProgramCallFields &fields,
-			    const RenderContext &ctx, DrawState &out_state)
+			    const RenderContext &ctx,
+			    const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			    DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -62,6 +64,7 @@ bool CircleProgram::prepare(const ProgramCallFields &fields,
 
 bool RoundedRectProgram::prepare(const ProgramCallFields &fields,
 				 const RenderContext &ctx,
+				 const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
 				 DrawState &out_state)
 {
 	using mlregl::transport::common::Value;

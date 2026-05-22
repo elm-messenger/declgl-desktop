@@ -28,7 +28,8 @@ bool ProgramBase::compile()
 
 // --- Shared streaming buffers ---
 
-namespace {
+namespace
+{
 struct StreamingBuffers {
 	GLuint vao = 0;
 	GLuint vbo = 0;
@@ -52,9 +53,18 @@ void ProgramBase::ensure_streaming_buffers()
 	glGenBuffers(1, &s.ebo);
 }
 
-GLuint ProgramBase::stream_vao() { return streaming_buffers().vao; }
-GLuint ProgramBase::stream_vbo() { return streaming_buffers().vbo; }
-GLuint ProgramBase::stream_ebo() { return streaming_buffers().ebo; }
+GLuint ProgramBase::stream_vao()
+{
+	return streaming_buffers().vao;
+}
+GLuint ProgramBase::stream_vbo()
+{
+	return streaming_buffers().vbo;
+}
+GLuint ProgramBase::stream_ebo()
+{
+	return streaming_buffers().ebo;
+}
 
 GLuint &ProgramBase::last_program_bound()
 {
@@ -71,6 +81,7 @@ void ProgramBase::draw(const DrawState &state)
 	}
 
 	// Set uniforms
+	int texture_unit = 0;
 	for (const auto &u : state.uniforms) {
 		const GLint loc = program_.uniform_location(u.name);
 		if (loc < 0)
@@ -93,9 +104,10 @@ void ProgramBase::draw(const DrawState &state)
 			glUniform1i(loc, u.i1);
 			break;
 		case DrawState::UniformVal::Type::TEX:
-			glActiveTexture(GL_TEXTURE0);
+			glActiveTexture(GL_TEXTURE0 + texture_unit);
 			glBindTexture(GL_TEXTURE_2D, u.tex_id);
-			glUniform1i(loc, 0);
+			glUniform1i(loc, texture_unit);
+			++texture_unit;
 			break;
 		}
 	}
@@ -129,8 +141,8 @@ void ProgramBase::draw(const DrawState &state)
 			continue;
 
 		const GLsizeiptr byte_size =
-			static_cast<GLsizeiptr>(a.vertex_count) *
-			a.components * sizeof(float);
+			static_cast<GLsizeiptr>(a.vertex_count) * a.components *
+			sizeof(float);
 		glBufferSubData(GL_ARRAY_BUFFER, offset, byte_size, a.data);
 		glEnableVertexAttribArray(static_cast<GLuint>(loc));
 		glVertexAttribPointer(static_cast<GLuint>(loc), a.components,
@@ -161,9 +173,9 @@ void ProgramBase::draw(const DrawState &state)
 	// Draw
 	if (state.indexed) {
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, stream_ebo());
-		const uint32_t *idx_data =
-			state.static_indices ? state.static_indices :
-						state.indices.data();
+		const uint32_t *idx_data = state.static_indices ?
+						   state.static_indices :
+						   state.indices.data();
 		const GLsizeiptr idx_size =
 			static_cast<GLsizeiptr>(state.count) * sizeof(uint32_t);
 		glBufferData(GL_ELEMENT_ARRAY_BUFFER, idx_size, idx_data,
@@ -175,7 +187,8 @@ void ProgramBase::draw(const DrawState &state)
 		GLsizei vert_count = state.count;
 		if (vert_count == 0) {
 			if (!state.static_attribs.empty()) {
-				vert_count = state.static_attribs[0].vertex_count;
+				vert_count =
+					state.static_attribs[0].vertex_count;
 			} else if (!state.dyn_attribs.empty()) {
 				vert_count = static_cast<GLsizei>(
 					state.dyn_attribs[0].data.size() /

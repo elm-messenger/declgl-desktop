@@ -17,8 +17,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 #include "transport_render.pb.h"
 #include "renderer/render_context.h"
@@ -93,8 +93,6 @@ struct DrawState {
 		GLuint tex_id = 0; // for Type::TEX
 	};
 	std::vector<UniformVal> uniforms;
-
-	// --- Helpers ---
 
 	// Add dynamic attribute (copies data)
 	void add_dyn_attrib(std::string name, GLint components,
@@ -203,9 +201,11 @@ class ProgramBase {
 	// Prepare draw state from runtime input.
 	// Returns false to skip this draw (e.g., texture not loaded).
 	// ctx provides access to textures, fonts, viewport, camera, etc.
+	// builtin_textures contains FBO textures for effects/compositors (t1, t2, texture, fbo).
 	virtual bool prepare(const ProgramCallFields &fields,
-			     const RenderContext &ctx,
-			     DrawState &out_state) = 0;
+		     const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
+		     DrawState &out_state) = 0;
 
 	// --- Provided by base class ---
 

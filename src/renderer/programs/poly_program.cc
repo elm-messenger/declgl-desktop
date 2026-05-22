@@ -31,7 +31,9 @@ GLenum primitive_from_string(std::string_view s)
 } // namespace
 
 bool PolyProgram::prepare(const ProgramCallFields &fields,
-			  const RenderContext &ctx, DrawState &out_state)
+			  const RenderContext &ctx,
+			  const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -105,7 +107,9 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 }
 
 bool QuadProgram::prepare(const ProgramCallFields &fields,
-			  const RenderContext &ctx, DrawState &out_state)
+			  const RenderContext &ctx,
+			  const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 

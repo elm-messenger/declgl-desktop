@@ -1,6 +1,5 @@
 add_library(declgl_gpu OBJECT
     program.cc
-    program_registry.cc
     fbo_pool.cc
 )
 

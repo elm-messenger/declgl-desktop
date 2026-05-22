@@ -23,6 +23,7 @@ class RectProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const std::unordered_map<std::string, GLuint> &builtin_textures,
 		     DrawState &out_state) override;
 
     private:
