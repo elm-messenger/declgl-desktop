@@ -128,6 +128,47 @@ PacingConfig &pacing_config()
 	return c;
 }
 
+// Mouse events from SDL arrive in window coordinates. OCaml code, however,
+// works in the same logical coordinate system used by renderables: the
+// StartRegl virtual canvas. Keep that virtual size here so the event bridge
+// can rescale mouse positions after window resize / fullscreen / high-DPI
+// presentation changes.
+struct VirtualCanvasSize {
+	double width = 0.0;
+	double height = 0.0;
+};
+VirtualCanvasSize &virtual_canvas_size()
+{
+	static VirtualCanvasSize s;
+	return s;
+}
+
+struct MousePoint {
+	double x = 0.0;
+	double y = 0.0;
+};
+
+MousePoint mouse_to_virtual(float window_x, float window_y)
+{
+	MousePoint out{ window_x, window_y };
+	SDL_Window *window = engine() ? engine()->sdl_window() : nullptr;
+	const VirtualCanvasSize virt = virtual_canvas_size();
+	if (!window || virt.width <= 0.0 || virt.height <= 0.0)
+		return out;
+
+	int window_w = 0;
+	int window_h = 0;
+	SDL_GetWindowSize(window, &window_w, &window_h);
+	if (window_w <= 0 || window_h <= 0)
+		return out;
+
+	out.x = static_cast<double>(window_x) * virt.width /
+		static_cast<double>(window_w);
+	out.y = static_cast<double>(window_y) * virt.height /
+		static_cast<double>(window_h);
+	return out;
+}
+
 // ---------------------------------------------------------------------------
 // Profiling mode (DECLGL_PROFILE env var)
 // ---------------------------------------------------------------------------
@@ -267,24 +308,27 @@ bool sdl_event_to_pb(const SDL_Event &ev,
 	switch (ev.type) {
 	case SDL_EVENT_MOUSE_BUTTON_DOWN: {
 		MouseEvent m;
+		const MousePoint p = mouse_to_virtual(ev.button.x, ev.button.y);
 		m.set_button(static_cast<uint32_t>(ev.button.button));
-		m.set_x(ev.button.x);
-		m.set_y(ev.button.y);
+		m.set_x(p.x);
+		m.set_y(p.y);
 		*out->mutable_mouse_down() = m;
 		return true;
 	}
 	case SDL_EVENT_MOUSE_BUTTON_UP: {
 		MouseEvent m;
+		const MousePoint p = mouse_to_virtual(ev.button.x, ev.button.y);
 		m.set_button(static_cast<uint32_t>(ev.button.button));
-		m.set_x(ev.button.x);
-		m.set_y(ev.button.y);
+		m.set_x(p.x);
+		m.set_y(p.y);
 		*out->mutable_mouse_up() = m;
 		return true;
 	}
 	case SDL_EVENT_MOUSE_MOTION: {
 		MouseMoveEvent m;
-		m.set_x(ev.motion.x);
-		m.set_y(ev.motion.y);
+		const MousePoint p = mouse_to_virtual(ev.motion.x, ev.motion.y);
+		m.set_x(p.x);
+		m.set_y(p.y);
 		*out->mutable_mouse_move() = m;
 		return true;
 	}
@@ -500,6 +544,19 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 			if (!loop_running_flag() && !need_loop) {
 				if (engine()->init_window_and_gl(
 					    cmd.start_regl())) {
+					const auto &start = cmd.start_regl();
+					virtual_canvas_size().width = start.virt_width();
+					virtual_canvas_size().height = start.virt_height();
+					if (virtual_canvas_size().width <= 0.0 ||
+					    virtual_canvas_size().height <= 0.0) {
+						int ww = 0, wh = 0;
+						SDL_GetWindowSize(engine()->sdl_window(), &ww,
+								  &wh);
+						if (virtual_canvas_size().width <= 0.0)
+							virtual_canvas_size().width = ww;
+						if (virtual_canvas_size().height <= 0.0)
+							virtual_canvas_size().height = wh;
+					}
 					need_loop = true;
 				} else {
 					DECLGL_LOG_ERROR(
