@@ -248,6 +248,14 @@ void RenderableWalker::ensure_streaming_buffers()
 	glGenBuffers(1, &stream_ebo_);
 }
 
+void RenderableWalker::use_program(GLuint prog_id)
+{
+	if (prog_id != last_program_) {
+		glUseProgram(prog_id);
+		last_program_ = prog_id;
+	}
+}
+
 void RenderableWalker::render(const mlregl::transport::render::Renderable &r,
 			      const RenderContext &ctx)
 {
@@ -296,7 +304,7 @@ void RenderableWalker::render(const mlregl::transport::render::Renderable &r,
 	glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prev_fbo));
 	glViewport(0, 0, ctx.pixel_w, ctx.pixel_h);
 	if (const Program *prog = programs_.get("palette")) {
-		glUseProgram(prog->id());
+		use_program(prog->id());
 		bind_palette_sampler(*prog, "tex", pid, 0, ctx);
 		draw_fullscreen_quad(*prog);
 		glBindTexture(GL_TEXTURE_2D, 0);
@@ -345,7 +353,7 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		return;
 	}
 
-	glUseProgram(prog->id());
+	use_program(prog->id());
 
 	// Standard built-in uniforms shared by every JS-style program.
 	// Tolerated as absent (some programs don't sample them).
@@ -890,7 +898,7 @@ int RenderableWalker::draw_composite(
 		glClear(GL_COLOR_BUFFER_BIT);
 		if (r1 >= 0) {
 			if (const Program *pal = programs_.get("palette")) {
-				glUseProgram(pal->id());
+				use_program(pal->id());
 				bind_palette_sampler(*pal, "tex", r1, 0, ctx);
 				draw_fullscreen_quad(*pal);
 			}
@@ -903,7 +911,7 @@ int RenderableWalker::draw_composite(
 	bind_fbo(npid, ctx);
 	glClearColor(0.f, 0.f, 0.f, 0.f);
 	glClear(GL_COLOR_BUFFER_BIT);
-	glUseProgram(prog->id());
+	use_program(prog->id());
 
 	// Bind both source palettes as samplers.
 	bind_palette_sampler(*prog, "t1", r1, 0, ctx);
@@ -960,7 +968,7 @@ int RenderableWalker::simple_compose(int old_pid, int new_pid,
 
 	bind_fbo(old_pid, ctx);
 	if (const Program *prog = programs_.get("palette")) {
-		glUseProgram(prog->id());
+		use_program(prog->id());
 		bind_palette_sampler(*prog, "tex", new_pid, 0, ctx);
 		draw_fullscreen_quad(*prog);
 		glBindTexture(GL_TEXTURE_2D, 0);
@@ -983,7 +991,7 @@ int RenderableWalker::apply_effect(const mlregl::transport::render::Effect &e,
 		glClearColor(0.f, 0.f, 0.f, 0.f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		if (const Program *pal = programs_.get("palette")) {
-			glUseProgram(pal->id());
+			use_program(pal->id());
 			bind_palette_sampler(*pal, "tex", src_pid, 0, ctx);
 			draw_fullscreen_quad(*pal);
 			glBindTexture(GL_TEXTURE_2D, 0);
@@ -995,7 +1003,7 @@ int RenderableWalker::apply_effect(const mlregl::transport::render::Effect &e,
 	glClearColor(0.f, 0.f, 0.f, 0.f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	glUseProgram(prog->id());
+	use_program(prog->id());
 	bind_palette_sampler(*prog, "tex", src_pid, 0, ctx);
 
 	// Numeric fields → uniforms by name. `view` is provided too
@@ -1432,7 +1440,7 @@ void RenderableWalker::render_textbox(const AtomicRenderable &a,
 	}
 
 	// ---- 5. Issue the draw -----------------------------------------------
-	glUseProgram(prog->id());
+	use_program(prog->id());
 
 	// Standard preamble — matches render_atomic's view/camera path.
 	if (const GLint loc = prog->uniform_location("view"); loc >= 0) {

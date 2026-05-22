@@ -85,6 +85,9 @@ class RenderableWalker {
 	// atomic draw paths. Called once per walker lifetime.
 	void ensure_streaming_buffers();
 
+	// glUseProgram with caching to avoid redundant driver calls.
+	void use_program(GLuint prog_id);
+
 	// Free an FBO if id >= 0. Convenience wrapper around
 	// FboPool::release that null-guards the pool.
 	void release_pid(int pid, const RenderContext &ctx);
@@ -118,6 +121,11 @@ class RenderableWalker {
 	// Framebuffer the engine had bound when [render] was called. We
 	// restore it before the final `palette` blit.
 	int target_fbo_at_entry_ = 0;
+
+	// Last program bound via glUseProgram. Used to skip redundant
+	// glUseProgram calls when consecutive atomics share the same program
+	// (e.g. 900 triangles all using the "triangle" program).
+	GLuint last_program_ = 0;
 };
 
 } // namespace declgl
