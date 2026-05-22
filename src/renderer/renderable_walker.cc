@@ -133,11 +133,7 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		return;
 	}
 
-	static std::string last;
-	if (last != prog_name) {
-		DECLGL_LOG_ERROR("no declarative program '{}'", prog_name);
-		last = prog_name;
-	}
+	DECLGL_LOG_ERROR("no declarative program '{}'", prog_name);
 }
 
 void RenderableWalker::release_pid(int pid, const RenderContext &ctx)
@@ -302,6 +298,10 @@ int RenderableWalker::draw_composite(
 	const auto &comp = c.compositor();
 	ProgramBase *decl_prog = decl_programs_.get(comp.program());
 	if (!decl_prog) {
+		DECLGL_LOG_ERROR(
+			"no declarative compositor program '{}'; falling back to "
+			"left palette passthrough",
+			comp.program());
 		// Compositor program missing: best-effort fallback is to flush
 		// either half straight to the new palette so something
 		// visible shows up. We pick the left half (matches the JS
@@ -390,6 +390,10 @@ int RenderableWalker::apply_effect(const mlregl::transport::render::Effect &e,
 
 	ProgramBase *decl_prog = decl_programs_.get(e.program());
 	if (!decl_prog) {
+		DECLGL_LOG_ERROR(
+			"no declarative effect program '{}'; falling back to "
+			"passthrough",
+			e.program());
 		// Unknown effect program — fall back to a passthrough.
 		bind_fbo(npid, ctx);
 		glClearColor(0.f, 0.f, 0.f, 0.f);

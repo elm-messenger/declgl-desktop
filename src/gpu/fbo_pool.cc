@@ -59,11 +59,20 @@ void FboPool::destroy_all()
 	}
 	fbos_.clear();
 	free_.clear();
+	cur_w_ = 0;
+	cur_h_ = 0;
 }
 
 bool FboPool::init(int count, int width, int height)
 {
 	destroy_all();
+	cur_w_ = width;
+	cur_h_ = height;
+	// Reserve up to the hard cap so later [acquire] growth via
+	// `push_back` never reallocates fbos_ / free_, keeping any
+	// `const Fbo *` returned by [get] stable across growth.
+	fbos_.reserve(static_cast<size_t>(kMaxFbos));
+	free_.reserve(static_cast<size_t>(kMaxFbos));
 	if (count <= 0)
 		return true;
 	fbos_.resize(static_cast<size_t>(count));
@@ -79,6 +88,8 @@ bool FboPool::init(int count, int width, int height)
 
 void FboPool::resize_all(int width, int height)
 {
+	cur_w_ = width;
+	cur_h_ = height;
 	for (auto &f : fbos_) {
 		if (f.width == width && f.height == height)
 			continue;
@@ -104,17 +115,40 @@ int FboPool::acquire()
 			return static_cast<int>(i);
 		}
 	}
-	static bool warned = false;
-	if (!warned) {
-		DECLGL_LOG_WARN(
-			"pool exhausted (size={}). Increase "
-			"StartRegl.fbo_num. This warning fires once per "
-			"process; subsequent failures are silent and the "
-			"affected subtree drops.",
-			static_cast<int>(fbos_.size()));
-		warned = true;
+
+	// At the hard cap: this is a runtime error; the affected sub-tree
+	// silently drops in the walker. Log every miss so the operator
+	// notices an over-spending frame instead of it being papered over.
+	if (static_cast<int>(fbos_.size()) >= kMaxFbos) {
+		DECLGL_LOG_ERROR(
+			"FBO pool exhausted at hard cap {} (size={}); "
+			"the affected sub-tree will drop. Reduce effect/"
+			"composite depth or raise StartRegl.fbo_num.",
+			kMaxFbos, static_cast<int>(fbos_.size()));
+		return -1;
 	}
-	return -1;
+
+	// No free slot but below the cap: warn, then grow by one. We size
+	// the new palette to the current pool dimensions so it can be
+	// used immediately by the in-flight render walk.
+	const int new_size = static_cast<int>(fbos_.size()) + 1;
+	DECLGL_LOG_WARN(
+		"FBO pool full (size={}); growing to {} (cap={}). "
+		"Consider raising StartRegl.fbo_num to avoid mid-frame "
+		"GL allocations.",
+		static_cast<int>(fbos_.size()), new_size, kMaxFbos);
+
+	Fbo nf;
+	if (!create_fbo(nf, cur_w_, cur_h_)) {
+		DECLGL_LOG_ERROR(
+			"FBO pool growth failed: create_fbo({}x{}) returned "
+			"false; the affected sub-tree will drop.",
+			cur_w_, cur_h_);
+		return -1;
+	}
+	fbos_.push_back(nf);
+	free_.push_back(false);
+	return static_cast<int>(fbos_.size()) - 1;
 }
 
 void FboPool::release(int id)

@@ -45,4 +45,9 @@ class DeclProgramRegistry {
 // Register all built-in declarative programs
 void register_builtin_decl_programs(DeclProgramRegistry &registry);
 
+// Register one built-in declarative program by name. Returns false if the
+// requested name is not implemented by the desktop backend.
+bool register_builtin_decl_program(DeclProgramRegistry &registry,
+				   std::string_view name);
+
 } // namespace declgl

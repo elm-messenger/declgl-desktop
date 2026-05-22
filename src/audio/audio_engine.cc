@@ -57,14 +57,8 @@ void ship(AudioEventSink &sink,
 	  const mlregl::transport::audio::AudioBackendEvent &ev)
 {
 	if (!sink) {
-		// Audio events are always interesting if no sink wired —
-		// log once so the misconfig is visible.
-		static bool warned = false;
-		if (!warned) {
-			DECLGL_LOG_WARN(
-				"AudioBackendEvent dropped: no event_sink registered");
-			warned = true;
-		}
+		DECLGL_LOG_WARN(
+			"AudioBackendEvent dropped: no event_sink registered");
 		return;
 	}
 	std::string buf;

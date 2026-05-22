@@ -110,14 +110,10 @@ bool TextboxProgram::prepare(
 		if (atlas_key.empty()) {
 			atlas_key = fe->texture_name;
 		} else if (atlas_key != fe->texture_name) {
-			static std::string last;
-			if (last != name) {
-				DECLGL_LOG_ERROR(
-					"textbox '{}' mixes fonts with "
-					"different atlases ('{}' vs '{}'); using first",
-					name, atlas_key, fe->texture_name);
-				last = name;
-			}
+			DECLGL_LOG_ERROR(
+				"textbox '{}' mixes fonts with different atlases "
+				"('{}' vs '{}'); using first",
+				name, atlas_key, fe->texture_name);
 			// Soldier on with the first atlas; this is recoverable.
 		}
 		fonts.push_back(fe->font.get());

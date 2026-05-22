@@ -297,10 +297,13 @@ bool Engine::init_window_and_gl(
 	render_ctx_->pixel_h = ph;
 	glViewport(0, 0, pw, ph);
 
-	// Provision the FBO pool. JS ml-regl mirrors StartRegl.fbo_num
-	// exactly — running out of palettes mid-frame is a hard error
-	// there. We default to 5 (matching the OCaml builders' default)
-	// when the field is unset/zero.
+	// Provision the FBO pool. JS ml-regl seeds at `fbo_num` and
+	// grows on demand up to a hard cap (1000) — see
+	// `getFreePalette` in ml-regl-js/src/app.js. Our FboPool
+	// mirrors that: this initial count is a seed, not a ceiling;
+	// `acquire` grows the pool with a warning when the seed is
+	// exhausted. We default to 5 (matching the OCaml builders'
+	// default) when the field is unset/zero.
 	{
 		const int fbo_count =
 			start.fbo_num() > 0 ?
@@ -319,9 +322,32 @@ bool Engine::init_window_and_gl(
 	glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
 			    GL_ONE_MINUS_SRC_ALPHA);
 
-	// Register and compile declarative programs
-	register_builtin_decl_programs(*decl_programs_);
-	decl_programs_->compile_all();
+	// Register and compile declarative programs. If StartRegl carries an
+	// explicit builtin_programs list, mirror the JS backend and treat every
+	// listed name as a required builtin. Unknown names are startup errors, not
+	// silent no-ops. The [palette] blit is internal (JS creates drawPalette
+	// separately), so keep it available even when a subset is requested.
+	bool programs_ok = true;
+	if (start.has_builtin_programs()) {
+		(void)register_builtin_decl_program(*decl_programs_, "palette");
+		for (const auto &name : start.builtin_programs().values()) {
+			if (!register_builtin_decl_program(*decl_programs_, name)) {
+				DECLGL_LOG_ERROR(
+					"unknown builtin program requested in "
+					"StartRegl.builtin_programs: '{}'",
+					name);
+				programs_ok = false;
+			}
+		}
+	} else {
+		register_builtin_decl_programs(*decl_programs_);
+	}
+	programs_ok = decl_programs_->compile_all() && programs_ok;
+	if (!programs_ok) {
+		set_error("failed to register/compile builtin programs");
+		shutdown();
+		return false;
+	}
 
 	start_ticks_ = SDL_GetTicks();
 	set_error("");
@@ -607,16 +633,9 @@ void Engine::shutdown()
 void Engine::ship_event(const mlregl::transport::backend::BackendEvent &ev)
 {
 	if (!event_sink_) {
-		// Mirror the JS backend, which silently buffers events when no
-		// listener is wired. We log once per process so misconfigured
-		// setups don't go unnoticed.
-		static bool warned = false;
-		if (!warned) {
-			DECLGL_LOG_WARN(
-				"ship_event: no EventSink registered "
-				"(events will be dropped); is the bridge wired up?");
-			warned = true;
-		}
+		DECLGL_LOG_WARN(
+			"ship_event: no EventSink registered "
+			"(events will be dropped); is the bridge wired up?");
 		return;
 	}
 	std::string buf;
