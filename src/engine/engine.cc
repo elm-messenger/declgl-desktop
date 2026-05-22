@@ -182,9 +182,25 @@ bool Engine::init_window_and_gl(
 				  static_cast<int32_t>(start.virt_height()) :
 				  720;
 
-	window_ = SDL_CreateWindow("declgl", w, h,
-				   SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
-					   SDL_WINDOW_HIGH_PIXEL_DENSITY);
+	// Default window flags. The optional WindowConfig sub-message
+	// overrides each control: absent fields keep the default.
+	bool want_resizable = true;
+	bool want_fullscreen = false;
+	if (start.has_window()) {
+		const auto &wc = start.window();
+		if (wc.has_resizable())
+			want_resizable = wc.resizable();
+		if (wc.has_fullscreen())
+			want_fullscreen = wc.fullscreen();
+	}
+	SDL_WindowFlags wflags = SDL_WINDOW_OPENGL |
+				 SDL_WINDOW_HIGH_PIXEL_DENSITY;
+	if (want_resizable)
+		wflags |= SDL_WINDOW_RESIZABLE;
+	if (want_fullscreen)
+		wflags |= SDL_WINDOW_FULLSCREEN;
+
+	window_ = SDL_CreateWindow("declgl", w, h, wflags);
 	if (!window_) {
 		set_error(std::string("SDL_CreateWindow: ") + SDL_GetError());
 		SDL_Quit();
@@ -460,11 +476,12 @@ void Engine::dispatch_backend_command(
 		loader_->enqueue(std::move(job));
 		break;
 	}
-	case BackendCommand::kConfigRegl: {
-		std::printf("[declgl] config_regl interval_ms=%g\n",
-			    cmd.config_regl().interval_ms());
+	case BackendCommand::kConfigRegl:
+		// Pacing + window flags live in the bridge — it owns the SDL
+		// window and the per-frame loop, both of which ConfigRegl
+		// targets. The bridge consumes kConfigRegl directly and never
+		// forwards it here.
 		break;
-	}
 	case BackendCommand::kCreateProgram: {
 		const auto &cp = cmd.create_program();
 		std::printf("[declgl] create_program name=%s\n",
@@ -586,6 +603,9 @@ void Engine::dispatch_backend_command(
 	case BackendCommand::kStartRegl:
 		// The bridge handles StartRegl itself (it owns window+loop
 		// lifecycle); it never forwards it here.
+		break;
+	case BackendCommand::kQuitRegl:
+		// Same as StartRegl: handled by the bridge, never forwarded.
 		break;
 	case BackendCommand::KIND_NOT_SET:
 	default:

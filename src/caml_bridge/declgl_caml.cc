@@ -105,6 +105,29 @@ bool &loop_running_flag()
 	return running;
 }
 
+// Set when a [QuitRegl] BackendCommand arrives. Checked at the top of
+// [drive_one_frame]; the loop exits before the next OCaml update so
+// the OCaml model never observes the post-quit frame. Cleared on
+// [enter_run_loop] entry to keep it idempotent across re-runs.
+bool &quit_requested_flag()
+{
+	static bool q = false;
+	return q;
+}
+
+// Per-frame pacing target. interval_ms <= 0 means "auto" (vsync); >0
+// means manual ms target — the bridge sleeps after SwapWindow until
+// the frame budget is consumed. Mutated by [BackendCommand::kConfigRegl]
+// inside [dispatch_batch]; read by [drive_one_frame].
+struct PacingConfig {
+	double interval_ms = -1.0; // -1 == auto / vsync
+};
+PacingConfig &pacing_config()
+{
+	static PacingConfig c;
+	return c;
+}
+
 // Shared time origin: the SDL tick captured when the run loop first
 // entered. Same value the bridge subtracts before it calls
 // [declgl_app_update], so [now_ms] computed off this anchor lines up
@@ -198,9 +221,12 @@ bool pump_events_and_dispatch(Callbacks &cb)
 // One frame: tick → update → view → render → swap. Returns false to exit.
 bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 {
+	if (quit_requested_flag())
+		return false;
 	if (!pump_events_and_dispatch(cb))
 		return false;
 
+	const Uint64 frame_start_ns = SDL_GetTicksNS();
 	const double now_ms = static_cast<double>(SDL_GetTicks() - start_ticks);
 
 	{
@@ -208,6 +234,11 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 		caml_callback(*cb.update, caml_copy_double(now_ms));
 		CAMLdrop;
 	}
+
+	// [update] above can ship a QuitRegl; honour it before we burn
+	// view/render work on a frame whose result will be discarded.
+	if (quit_requested_flag())
+		return false;
 
 	{
 		CAMLparam0();
@@ -241,6 +272,19 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 	}
 
 	SDL_GL_SwapWindow(window);
+
+	// Manual frame pacing. With interval_ms <= 0 the swap above is
+	// already throttled by vsync (set in [init_window_and_gl]); with
+	// interval_ms > 0 vsync was disabled when the config landed and
+	// we sleep here to hit the requested ms budget.
+	const double interval_ms = pacing_config().interval_ms;
+	if (interval_ms > 0.0) {
+		const Uint64 elapsed_ns = SDL_GetTicksNS() - frame_start_ns;
+		const Uint64 target_ns =
+			static_cast<Uint64>(interval_ms * 1.0e6);
+		if (elapsed_ns < target_ns)
+			SDL_DelayNS(target_ns - elapsed_ns);
+	}
 	return true;
 }
 
@@ -273,10 +317,12 @@ void enter_run_loop()
 	const Uint64 start_ticks = bridge_start_ticks();
 
 	loop_running_flag() = true;
+	quit_requested_flag() = false;
 	while (drive_one_frame(cb, window, start_ticks)) {
 		// Loop body intentionally empty — drive_one_frame does it all.
 	}
 	loop_running_flag() = false;
+	quit_requested_flag() = false;
 
 	engine()->shutdown();
 }
@@ -310,6 +356,91 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 					"[declgl/bridge] duplicate StartRegl ignored\n");
 			}
 			break;
+
+		case BackendCommand::kQuitRegl:
+			// Set the flag; the run loop's [drive_one_frame] sees
+			// it on the next iteration and tears down. If QuitRegl
+			// arrives before StartRegl (no window yet) we just
+			// log — there's no loop to stop.
+			if (loop_running_flag() || need_loop) {
+				quit_requested_flag() = true;
+				std::printf(
+					"[declgl/bridge] quit_regl: stopping run loop\n");
+			} else {
+				std::fprintf(
+					stderr,
+					"[declgl/bridge] quit_regl before StartRegl; ignoring\n");
+			}
+			break;
+
+		case BackendCommand::kConfigRegl: {
+			// ConfigRegl targets the bridge-owned window + per-
+			// frame loop, so the bridge consumes it directly
+			// instead of forwarding to the engine. By design,
+			// configuring before StartRegl is meaningless (no
+			// window, no loop), so we ignore it with a warning.
+			if (!loop_running_flag() && !need_loop) {
+				std::fprintf(
+					stderr,
+					"[declgl/bridge] config_regl before StartRegl; ignoring\n");
+				break;
+			}
+			const auto &cr = cmd.config_regl();
+			switch (cr.config_case()) {
+			case ReglConfig::kIntervalMs: {
+				const double ms = cr.interval_ms();
+				pacing_config().interval_ms = ms;
+				// Vsync would double-throttle a manual ms
+				// target, so disable it for >0 and re-enable
+				// adaptive vsync (with regular vsync as a
+				// fallback) when returning to auto.
+				if (ms > 0.0) {
+					SDL_GL_SetSwapInterval(0);
+					std::printf(
+						"[declgl/bridge] config_regl interval_ms=%g (manual pacing)\n",
+						ms);
+				} else {
+					if (!SDL_GL_SetSwapInterval(-1))
+						SDL_GL_SetSwapInterval(1);
+					std::printf(
+						"[declgl/bridge] config_regl interval_ms=%g (vsync)\n",
+						ms);
+				}
+				break;
+			}
+			case ReglConfig::kWindow: {
+				SDL_Window *w = engine()->sdl_window();
+				if (!w) {
+					std::fprintf(
+						stderr,
+						"[declgl/bridge] config_regl(window) but no window; ignoring\n");
+					break;
+				}
+				const auto &wc = cr.window();
+				if (wc.has_fullscreen()) {
+					SDL_SetWindowFullscreen(
+						w, wc.fullscreen());
+					std::printf(
+						"[declgl/bridge] config_regl window.fullscreen=%d\n",
+						wc.fullscreen() ? 1 : 0);
+				}
+				if (wc.has_resizable()) {
+					SDL_SetWindowResizable(
+						w, wc.resizable());
+					std::printf(
+						"[declgl/bridge] config_regl window.resizable=%d\n",
+						wc.resizable() ? 1 : 0);
+				}
+				break;
+			}
+			case ReglConfig::CONFIG_NOT_SET:
+				std::fprintf(
+					stderr,
+					"[declgl/bridge] config_regl with no payload; ignoring\n");
+				break;
+			}
+			break;
+		}
 
 		case BackendCommand::KIND_NOT_SET:
 			break;
