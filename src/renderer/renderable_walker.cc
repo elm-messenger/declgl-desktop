@@ -213,12 +213,39 @@ void set_uniform_from_value(const Program &prog, std::string_view uniform_name,
 
 RenderableWalker::~RenderableWalker()
 {
+	// Fullscreen quad resources
 	if (fs_ebo_)
 		glDeleteBuffers(1, &fs_ebo_);
 	if (fs_vbo_)
 		glDeleteBuffers(1, &fs_vbo_);
 	if (fs_vao_)
 		glDeleteVertexArrays(1, &fs_vao_);
+
+	// Streaming resources (reused across atomic draws)
+	if (stream_ebo_)
+		glDeleteBuffers(1, &stream_ebo_);
+	if (stream_vbo_aux2_)
+		glDeleteBuffers(1, &stream_vbo_aux2_);
+	if (stream_vbo_aux1_)
+		glDeleteBuffers(1, &stream_vbo_aux1_);
+	if (stream_vbo_pos_)
+		glDeleteBuffers(1, &stream_vbo_pos_);
+	if (stream_vao_)
+		glDeleteVertexArrays(1, &stream_vao_);
+}
+
+// Lazily create the shared streaming VAO/VBO/EBO. These are reused across
+// every atomic draw to avoid the expensive glGen/glDelete per-call overhead
+// that regl avoids by creating buffers at program-definition time.
+void RenderableWalker::ensure_streaming_buffers()
+{
+	if (stream_vao_ != 0)
+		return;
+	glGenVertexArrays(1, &stream_vao_);
+	glGenBuffers(1, &stream_vbo_pos_);
+	glGenBuffers(1, &stream_vbo_aux1_);
+	glGenBuffers(1, &stream_vbo_aux2_);
+	glGenBuffers(1, &stream_ebo_);
 }
 
 void RenderableWalker::render(const mlregl::transport::render::Renderable &r,
@@ -475,20 +502,21 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 			texc2_data = centered_cropped_texc2().data();
 		}
 
-		// 3. Build the VAO with up to three attribute streams + EBO.
+		// 3. Draw using the shared streaming VAO/VBOs.
+		// Instead of glGen/glDelete per draw (expensive), we reuse
+		// persistent buffers and orphan them via glBufferData.
+		// This matches what regl does internally for `regl.prop`.
+		ensure_streaming_buffers();
 		const auto &idx = texture_quad_indices();
-		GLuint vao = 0, vbo_pos = 0, vbo_texc = 0, vbo_texc2 = 0,
-		       ebo = 0;
-		glGenVertexArrays(1, &vao);
-		glBindVertexArray(vao);
+
+		glBindVertexArray(stream_vao_);
 
 		auto bind_vec2_attrib = [&](const char *name, const float *data,
-					    int count, GLuint &vbo_out) {
+					    int count, GLuint vbo) {
 			const GLint loc = prog->attribute_location(name);
 			if (loc < 0 || data == nullptr)
 				return;
-			glGenBuffers(1, &vbo_out);
-			glBindBuffer(GL_ARRAY_BUFFER, vbo_out);
+			glBindBuffer(GL_ARRAY_BUFFER, vbo);
 			glBufferData(GL_ARRAY_BUFFER,
 				     static_cast<GLsizeiptr>(count * 2 *
 							     sizeof(float)),
@@ -498,12 +526,14 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 					      GL_FLOAT, GL_FALSE, 0, nullptr);
 		};
 
-		bind_vec2_attrib("position", positions, vertex_count, vbo_pos);
-		bind_vec2_attrib("texc", texc_data, vertex_count, vbo_texc);
-		bind_vec2_attrib("texc2", texc2_data, vertex_count, vbo_texc2);
+		bind_vec2_attrib("position", positions, vertex_count,
+				 stream_vbo_pos_);
+		bind_vec2_attrib("texc", texc_data, vertex_count,
+				 stream_vbo_aux1_);
+		bind_vec2_attrib("texc2", texc2_data, vertex_count,
+				 stream_vbo_aux2_);
 
-		glGenBuffers(1, &ebo);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, stream_ebo_);
 		glBufferData(
 			GL_ELEMENT_ARRAY_BUFFER,
 			static_cast<GLsizeiptr>(idx.size() * sizeof(uint32_t)),
@@ -512,20 +542,9 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(idx.size()),
 			       GL_UNSIGNED_INT, nullptr);
 
-		// Tear down. VBO/EBO deletes detach automatically from the VAO
-		// we're about to delete; doing it in this order keeps GL state
-		// explicit and matches the rest of the walker.
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 		glBindVertexArray(0);
-		if (vbo_pos)
-			glDeleteBuffers(1, &vbo_pos);
-		if (vbo_texc)
-			glDeleteBuffers(1, &vbo_texc);
-		if (vbo_texc2)
-			glDeleteBuffers(1, &vbo_texc2);
-		glDeleteBuffers(1, &ebo);
-		glDeleteVertexArrays(1, &vao);
 
 		glBindTexture(GL_TEXTURE_2D, 0);
 		return;
@@ -594,15 +613,12 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		prim = primitive_from_string(pv->string_value());
 	}
 
-	// One transient VAO/VBO/EBO per draw. Pooling is M3.D's job.
-	GLuint vao = 0, vbo = 0, ebo = 0;
-	glGenVertexArrays(1, &vao);
-	glGenBuffers(1, &vbo);
-	if (index_count > 0)
-		glGenBuffers(1, &ebo);
+	// Use shared streaming VAO/VBO instead of transient per-draw objects.
+	// This eliminates the expensive glGen/glDelete per-call overhead.
+	ensure_streaming_buffers();
 
-	glBindVertexArray(vao);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo);
+	glBindVertexArray(stream_vao_);
+	glBindBuffer(GL_ARRAY_BUFFER, stream_vbo_pos_);
 	glBufferData(GL_ARRAY_BUFFER,
 		     static_cast<GLsizeiptr>(vertex_count * 2 * sizeof(float)),
 		     positions, GL_STREAM_DRAW);
@@ -618,7 +634,7 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 				      GL_FALSE, 0, nullptr);
 
 		if (index_count > 0) {
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, stream_ebo_);
 			glBufferData(GL_ELEMENT_ARRAY_BUFFER,
 				     static_cast<GLsizeiptr>(index_count *
 							     sizeof(uint32_t)),
@@ -635,10 +651,6 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
-	glDeleteBuffers(1, &vbo);
-	if (ebo)
-		glDeleteBuffers(1, &ebo);
-	glDeleteVertexArrays(1, &vao);
 }
 
 void RenderableWalker::release_pid(int pid, const RenderContext &ctx)
@@ -1451,19 +1463,17 @@ void RenderableWalker::render_textbox(const AtomicRenderable &a,
 		glUniform1i(loc, 0);
 	}
 
-	// Build a transient VAO + 2 VBOs + 1 EBO. Same lifecycle pattern
-	// as the texture branch — pooling is a future optimisation.
-	GLuint vao = 0, vbo_pos = 0, vbo_uv = 0, ebo = 0;
-	glGenVertexArrays(1, &vao);
-	glBindVertexArray(vao);
+	// Use shared streaming VAO/VBO instead of transient per-draw objects.
+	ensure_streaming_buffers();
+
+	glBindVertexArray(stream_vao_);
 
 	auto bind_vec2 = [&](const char *name, const float *data,
-			     size_t n_floats, GLuint &vbo_out) {
+			     size_t n_floats, GLuint vbo) {
 		const GLint loc = prog->attribute_location(name);
 		if (loc < 0)
 			return;
-		glGenBuffers(1, &vbo_out);
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_out);
+		glBindBuffer(GL_ARRAY_BUFFER, vbo);
 		glBufferData(GL_ARRAY_BUFFER,
 			     static_cast<GLsizeiptr>(n_floats * sizeof(float)),
 			     data, GL_STREAM_DRAW);
@@ -1471,11 +1481,10 @@ void RenderableWalker::render_textbox(const AtomicRenderable &a,
 		glVertexAttribPointer(static_cast<GLuint>(loc), 2, GL_FLOAT,
 				      GL_FALSE, 0, nullptr);
 	};
-	bind_vec2("position", pos_buf.data(), pos_buf.size(), vbo_pos);
-	bind_vec2("uv", uv_buf.data(), uv_buf.size(), vbo_uv);
+	bind_vec2("position", pos_buf.data(), pos_buf.size(), stream_vbo_pos_);
+	bind_vec2("uv", uv_buf.data(), uv_buf.size(), stream_vbo_aux1_);
 
-	glGenBuffers(1, &ebo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, stream_ebo_);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER,
 		     static_cast<GLsizeiptr>(idx_buf.size() * sizeof(uint32_t)),
 		     idx_buf.data(), GL_STREAM_DRAW);
@@ -1483,16 +1492,9 @@ void RenderableWalker::render_textbox(const AtomicRenderable &a,
 	glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(idx_buf.size()),
 		       GL_UNSIGNED_INT, nullptr);
 
-	// Tear down.
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
-	if (vbo_pos)
-		glDeleteBuffers(1, &vbo_pos);
-	if (vbo_uv)
-		glDeleteBuffers(1, &vbo_uv);
-	glDeleteBuffers(1, &ebo);
-	glDeleteVertexArrays(1, &vao);
 	glBindTexture(GL_TEXTURE_2D, 0);
 }
 

@@ -81,6 +81,10 @@ class RenderableWalker {
 	render_textbox(const mlregl::transport::render::AtomicRenderable &a,
 		       const RenderContext &ctx);
 
+	// Lazily create the shared streaming VAO/VBO/EBO used by all
+	// atomic draw paths. Called once per walker lifetime.
+	void ensure_streaming_buffers();
+
 	// Free an FBO if id >= 0. Convenience wrapper around
 	// FboPool::release that null-guards the pool.
 	void release_pid(int pid, const RenderContext &ctx);
@@ -99,6 +103,17 @@ class RenderableWalker {
 	unsigned int fs_vbo_ = 0;
 	unsigned int fs_ebo_ = 0;
 	bool fs_built_ = false;
+
+	// Persistent streaming VAO/VBO/EBO objects reused across atomic
+	// draws. Instead of glGen/glDelete per draw (which is expensive
+	// for high draw counts), we keep a small set of GL objects and
+	// orphan+rewrite their data via glBufferData(GL_STREAM_DRAW).
+	// This matches what regl does internally for `regl.prop` attributes.
+	unsigned int stream_vao_ = 0;
+	unsigned int stream_vbo_pos_ = 0;
+	unsigned int stream_vbo_aux1_ = 0; // texc / uv / texc2
+	unsigned int stream_vbo_aux2_ = 0; // texc2 (texture path only)
+	unsigned int stream_ebo_ = 0;
 
 	// Framebuffer the engine had bound when [render] was called. We
 	// restore it before the final `palette` blit.
