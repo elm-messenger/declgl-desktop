@@ -10,6 +10,7 @@
 #include "gpu/program_registry.h"
 #include "gpu/fbo_pool.h"
 #include "log/log.h"
+#include "renderer/decl_program_registry.h"
 #include "renderer/render_context.h"
 #include "renderer/renderable_walker.h"
 #include "resources/asset_loader.h"
@@ -269,11 +270,12 @@ bool Engine::init_window_and_gl(
 	// These all need an active GL context, so we construct them here
 	// rather than in [init_decoders_only].
 	programs_ = std::make_unique<ProgramRegistry>();
+	decl_programs_ = std::make_unique<DeclProgramRegistry>();
 	textures_ = std::make_unique<TextureRegistry>();
 	fonts_ = std::make_unique<FontRegistry>();
 	fbos_ = std::make_unique<FboPool>();
 	render_ctx_ = std::make_unique<RenderContext>();
-	walker_ = std::make_unique<RenderableWalker>(*programs_);
+	walker_ = std::make_unique<RenderableWalker>(*programs_, *decl_programs_);
 	render_ctx_->textures = textures_.get();
 	render_ctx_->fonts = fonts_.get();
 	render_ctx_->fbos = fbos_.get();
@@ -382,6 +384,10 @@ bool Engine::init_window_and_gl(
 							  s.frag_from);
 		}
 	}
+
+	// Register and compile declarative programs
+	register_builtin_decl_programs(*decl_programs_);
+	decl_programs_->compile_all();
 
 	start_ticks_ = SDL_GetTicks();
 	set_error("");
@@ -636,6 +642,7 @@ void Engine::shutdown()
 	audio_.reset();
 	walker_.reset();
 	programs_.reset();
+	decl_programs_.reset();
 	textures_.reset();
 	fonts_.reset();
 	fbos_.reset();

@@ -342,6 +342,17 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		return;
 	}
 
+	// --- Declarative program path ---
+	ProgramBase *decl_prog = decl_programs_.get(prog_name);
+	if (decl_prog) {
+		DrawState state;
+		if (decl_prog->prepare(a.fields(), ctx, state)) {
+			decl_prog->draw(state);
+		}
+		return;
+	}
+
+	// --- Fallback: old program registry path ---
 	const Program *prog = programs_.get(prog_name);
 	if (!prog) {
 		// Once per missing program, not per frame.

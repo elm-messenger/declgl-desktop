@@ -18,6 +18,7 @@
 
 #include "transport_render.pb.h"
 #include "gpu/program_registry.h"
+#include "renderer/decl_program_registry.h"
 #include "renderer/render_context.h"
 
 namespace declgl
@@ -25,8 +26,10 @@ namespace declgl
 
 class RenderableWalker {
     public:
-	explicit RenderableWalker(const ProgramRegistry &programs)
+	explicit RenderableWalker(const ProgramRegistry &programs,
+				  DeclProgramRegistry &decl_programs)
 		: programs_(programs)
+		, decl_programs_(decl_programs)
 	{
 	}
 	~RenderableWalker();
@@ -99,6 +102,7 @@ class RenderableWalker {
 				  int unit, const RenderContext &ctx);
 
 	const ProgramRegistry &programs_;
+	DeclProgramRegistry &decl_programs_;
 
 	// Lazy-built fullscreen quad used by every effect / compositor
 	// draw. Allocated on first use, destroyed in the destructor.

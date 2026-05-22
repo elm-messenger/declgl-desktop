@@ -34,6 +34,7 @@ namespace declgl
 {
 
 class ProgramRegistry;
+class DeclProgramRegistry;
 class TextureRegistry;
 class FontRegistry;
 class RenderableWalker;
@@ -132,6 +133,7 @@ class Engine {
 	// M3.B+: GPU resources. Lazily constructed in init_window_and_gl
 	// because they require an active GL context.
 	std::unique_ptr<ProgramRegistry> programs_;
+	std::unique_ptr<DeclProgramRegistry> decl_programs_;
 	std::unique_ptr<TextureRegistry> textures_;
 	std::unique_ptr<FontRegistry> fonts_;
 	std::unique_ptr<FboPool> fbos_;
