@@ -11,98 +11,101 @@
 #include "renderer/programs/effect_programs.h"
 #include "renderer/programs/textbox_program.h"
 
+#include <algorithm>
+#include <iterator>
+
 namespace declgl
 {
+
+namespace
+{
+
+using BuiltinProgramFactory = std::unique_ptr<ProgramBase> (*)();
+
+template <typename ProgramT>
+std::unique_ptr<ProgramBase> make_builtin_program()
+{
+	return std::make_unique<ProgramT>();
+}
+
+struct BuiltinProgramSpec {
+	std::string_view name;
+	BuiltinProgramFactory factory;
+};
+
+// The single source of truth for desktop built-in declarative programs.
+// To add a new built-in program, include its header above and add exactly one
+// row here. Both selective registration (StartRegl.builtin_programs) and bulk
+// registration use this inventory, so there is no second list to keep in sync.
+static constexpr BuiltinProgramSpec kBuiltinPrograms[] = {
+	// Primitives
+	{ "triangle", &make_builtin_program<programs::TriangleProgram> },
+	{ "rect", &make_builtin_program<programs::RectProgram> },
+	{ "circle", &make_builtin_program<programs::CircleProgram> },
+	{ "roundedRect", &make_builtin_program<programs::RoundedRectProgram> },
+	{ "poly", &make_builtin_program<programs::PolyProgram> },
+	{ "quad", &make_builtin_program<programs::QuadProgram> },
+
+	// Textures
+	{ "texture", &make_builtin_program<programs::TextureProgram> },
+	{ "textureCropped",
+	  &make_builtin_program<programs::TextureCroppedProgram> },
+	{ "centeredTexture",
+	  &make_builtin_program<programs::CenteredTextureProgram> },
+	{ "centeredCroppedTexture",
+	  &make_builtin_program<programs::CenteredCroppedTextureProgram> },
+
+	// Effects / compositors / internal palette blit
+	{ "palette", &make_builtin_program<programs::PaletteProgram> },
+	{ "defaultCompositor",
+	  &make_builtin_program<programs::DefaultCompositorProgram> },
+	{ "compFade", &make_builtin_program<programs::CompFadeProgram> },
+	{ "alphamult", &make_builtin_program<programs::AlphaMultProgram> },
+	{ "colormult", &make_builtin_program<programs::ColorMultProgram> },
+	{ "blurh", &make_builtin_program<programs::BlurHProgram> },
+	{ "blurv", &make_builtin_program<programs::BlurVProgram> },
+	{ "gblurh", &make_builtin_program<programs::GBlurHProgram> },
+	{ "gblurv", &make_builtin_program<programs::GBlurVProgram> },
+	{ "crt", &make_builtin_program<programs::CrtProgram> },
+	{ "fxaa", &make_builtin_program<programs::FxaaProgram> },
+	{ "outline", &make_builtin_program<programs::OutlineProgram> },
+	{ "pixilation", &make_builtin_program<programs::PixilationProgram> },
+	{ "imgFade", &make_builtin_program<programs::ImgFadeProgram> },
+
+	// Textbox (MSDF text rendering)
+	{ "textbox", &make_builtin_program<programs::TextboxProgram> },
+};
+
+const BuiltinProgramSpec *find_builtin_program(std::string_view name)
+{
+	auto it = std::find_if(std::begin(kBuiltinPrograms),
+				       std::end(kBuiltinPrograms),
+				       [name](const BuiltinProgramSpec &spec) {
+					       return spec.name == name;
+				       });
+	return it == std::end(kBuiltinPrograms) ? nullptr : it;
+}
+
+} // namespace
 
 bool register_builtin_decl_program(DeclProgramRegistry &registry,
 				   std::string_view name)
 {
-	// Primitives
-	if (name == "triangle") {
-		registry.register_program(
-			std::make_unique<programs::TriangleProgram>());
-		return true;
-	}
-	if (name == "rect") {
-		registry.register_program(std::make_unique<programs::RectProgram>());
-		return true;
-	}
-	if (name == "circle") {
-		registry.register_program(
-			std::make_unique<programs::CircleProgram>());
-		return true;
-	}
-	if (name == "roundedRect") {
-		registry.register_program(
-			std::make_unique<programs::RoundedRectProgram>());
-		return true;
-	}
-	if (name == "poly") {
-		registry.register_program(std::make_unique<programs::PolyProgram>());
-		return true;
-	}
-	if (name == "quad") {
-		registry.register_program(std::make_unique<programs::QuadProgram>());
-		return true;
+	const BuiltinProgramSpec *spec = find_builtin_program(name);
+	if (!spec)
+		return false;
+
+	std::unique_ptr<ProgramBase> program = spec->factory();
+	if (program->name() != spec->name) {
+		DECLGL_LOG_ERROR(
+			"builtin program registry mismatch: inventory key '{}' "
+			"constructs program '{}'",
+			spec->name, program->name());
+		return false;
 	}
 
-	// Textures
-	if (name == "texture") {
-		registry.register_program(
-			std::make_unique<programs::TextureProgram>());
-		return true;
-	}
-	if (name == "textureCropped") {
-		registry.register_program(
-			std::make_unique<programs::TextureCroppedProgram>());
-		return true;
-	}
-	if (name == "centeredTexture") {
-		registry.register_program(
-			std::make_unique<programs::CenteredTextureProgram>());
-		return true;
-	}
-	if (name == "centeredCroppedTexture") {
-		registry.register_program(
-			std::make_unique<programs::CenteredCroppedTextureProgram>());
-		return true;
-	}
-
-	// Effects / compositors / internal palette blit
-	if (name == "palette") {
-		registry.register_program(
-			std::make_unique<programs::PaletteProgram>());
-		return true;
-	}
-	if (name == "defaultCompositor") {
-		registry.register_program(
-			std::make_unique<programs::DefaultCompositorProgram>());
-		return true;
-	}
-	if (name == "compFade") {
-		registry.register_program(
-			std::make_unique<programs::CompFadeProgram>());
-		return true;
-	}
-	if (name == "alphamult") {
-		registry.register_program(
-			std::make_unique<programs::AlphaMultProgram>());
-		return true;
-	}
-	if (name == "colormult") {
-		registry.register_program(
-			std::make_unique<programs::ColorMultProgram>());
-		return true;
-	}
-
-	// Textbox (MSDF text rendering)
-	if (name == "textbox") {
-		registry.register_program(
-			std::make_unique<programs::TextboxProgram>());
-		return true;
-	}
-
-	return false;
+	registry.register_program(std::move(program));
+	return true;
 }
 
 bool DeclProgramRegistry::compile_all()
@@ -120,14 +123,8 @@ bool DeclProgramRegistry::compile_all()
 
 void register_builtin_decl_programs(DeclProgramRegistry &registry)
 {
-	static constexpr std::string_view names[] = {
-		"triangle", "rect", "circle", "roundedRect", "poly", "quad",
-		"texture", "textureCropped", "centeredTexture",
-		"centeredCroppedTexture", "palette", "defaultCompositor",
-		"compFade", "alphamult", "colormult", "textbox",
-	};
-	for (std::string_view name : names) {
-		(void)register_builtin_decl_program(registry, name);
+	for (const BuiltinProgramSpec &spec : kBuiltinPrograms) {
+		(void)register_builtin_decl_program(registry, spec.name);
 	}
 }
 

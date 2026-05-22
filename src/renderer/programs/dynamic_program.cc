@@ -4,6 +4,7 @@
 
 #include <algorithm>
 
+#include "log/log.h"
 #include "resources/texture.h"
 #include "resources/texture_registry.h"
 
@@ -134,7 +135,34 @@ std::vector<float> DynamicProgram::value_as_floats(const Value &value)
 			out.push_back(static_cast<float>(d));
 		}
 		break;
-	default:
+	case Value::kStringArrayValue:
+		// Numeric uniforms / attributes can't accept a list of
+		// strings. The textbox program reads StringArray fields
+		// directly through its own decoder; for any other shader
+		// this is a programmer error in the OCaml-side Program
+		// definition. Surface it loudly instead of silently
+		// rendering with an empty value vector.
+		DECLGL_LOG_ERROR(
+			"DynamicProgram: numeric value expected, got "
+			"string_array_value with {} entries; "
+			"value will be dropped",
+			value.string_array_value().values_size());
+		break;
+	case Value::kStringValue:
+	case Value::kBoolValue:
+		// String/bool aren't numeric; callers handle these
+		// upstream (string for textures/primitives, bool for
+		// glUniform1i). Reaching this branch means a caller
+		// asked for a numeric float vector from a non-numeric
+		// value — a programmer error.
+		DECLGL_LOG_ERROR(
+			"DynamicProgram: numeric value expected, got "
+			"{} value; value will be dropped",
+			value.kind_case() == Value::kStringValue ?
+				"string" :
+				"bool");
+		break;
+	case Value::KIND_NOT_SET:
 		break;
 	}
 	return out;

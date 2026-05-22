@@ -70,7 +70,6 @@ declgl::Engine *engine()
 // Cached pointers to the OCaml callbacks. Resolved lazily when [StartRegl]
 // is processed, by which time user-side Callback.registers have run.
 struct Callbacks {
-	const value *update = nullptr;
 	const value *event = nullptr;
 	const value *view = nullptr;
 	const value *recv_regl_cmd_pb = nullptr;
@@ -78,18 +77,16 @@ struct Callbacks {
 
 	bool resolve()
 	{
-		update = caml_named_value("declgl_app_update");
 		event = caml_named_value("declgl_app_event");
 		view = caml_named_value("declgl_app_view");
 		recv_regl_cmd_pb =
 			caml_named_value("declgl_app_recv_regl_cmd_pb");
 		recv_audio_msg_pb =
 			caml_named_value("declgl_app_recv_audio_msg_pb");
-		if (!update || !event || !view) {
+		if (!event || !view) {
 			DECLGL_LOG_ERROR("missing required Callback.register: "
-					 "update={} event={} view={}",
-					 (void *)update, (void *)event,
-					 (void *)view);
+					 "event={} view={}",
+					 (void *)event, (void *)view);
 			return false;
 		}
 		return true;
@@ -248,8 +245,8 @@ void profiling_shutdown()
 // ---------------------------------------------------------------------------
 
 // Shared time origin: the SDL tick captured when the run loop first
-// entered. Same value the bridge subtracts before it calls
-// [declgl_app_update], so [now_ms] computed off this anchor lines up
+// entered. Same value the bridge subtracts before it ships the per-frame
+// [UpdateTick] event, so [now_ms] computed off this anchor lines up
 // with the OCaml-side clock that StartSound / volume timeline points
 // reference. Zero before the loop has started — audio commands shipped
 // pre-StartRegl get [now_ms = 0], which still works because the
@@ -355,9 +352,23 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 	const double now_ms = static_cast<double>(SDL_GetTicks() - start_ticks);
 
 	{
-		CAMLparam0();
-		caml_callback(*cb.update, caml_copy_double(now_ms));
-		CAMLdrop;
+		// Tick is shipped as a proto Event (UpdateTick), exactly like
+		// the JS backend now does. The OCaml runtime decodes it in
+		// [h.event] and dispatches it through the same input pipeline
+		// as DOM/SDL events.
+		mlregl::transport::backend::Event tick_pb;
+		tick_pb.mutable_update_tick()->set_ts(now_ms);
+		std::string out;
+		if (tick_pb.SerializeToString(&out)) {
+			CAMLparam0();
+			CAMLlocal1(v_bytes);
+			v_bytes = caml_alloc_initialized_string(out.size(),
+								out.data());
+			caml_callback(*cb.event, v_bytes);
+			CAMLdrop;
+		} else {
+			DECLGL_LOG_ERROR("update_tick: serialize failed");
+		}
 	}
 	const Uint64 t2 = SDL_GetTicksNS();
 	sample.update_ns = t2 - t1;

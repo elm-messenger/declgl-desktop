@@ -28,6 +28,15 @@ set(_SHADER_FILES
     compFade.frag.glsl
     alphamult.frag.glsl
     colormult.frag.glsl
+    blurh.frag.glsl
+    blurv.frag.glsl
+    gblur.frag.glsl
+    crt.frag.glsl
+    fxaa.vert.glsl
+    fxaa.frag.glsl
+    outline.frag.glsl
+    pixilation.frag.glsl
+    imgFade.frag.glsl
     text.vert.glsl
     text.frag.glsl
 )

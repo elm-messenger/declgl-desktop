@@ -7,7 +7,21 @@ add_library(declgl_renderer OBJECT
     programs/circle_program.cc
     programs/texture_program.cc
     programs/poly_program.cc
-    programs/effect_programs.cc
+    programs/effect_common.cc
+    programs/palette_program.cc
+    programs/default_compositor_program.cc
+    programs/comp_fade_program.cc
+    programs/alpha_mult_program.cc
+    programs/color_mult_program.cc
+    programs/blurh_program.cc
+    programs/blurv_program.cc
+    programs/gblurh_program.cc
+    programs/gblurv_program.cc
+    programs/crt_program.cc
+    programs/fxaa_program.cc
+    programs/outline_program.cc
+    programs/pixilation_program.cc
+    programs/img_fade_program.cc
     programs/textbox_program.cc
     programs/dynamic_program.cc
 )
