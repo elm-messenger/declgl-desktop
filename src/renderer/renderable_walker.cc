@@ -7,7 +7,6 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 #include "gpu/fbo_pool.h"
 #include "log/log.h"
@@ -97,9 +96,9 @@ void RenderableWalker::render(const mlregl::transport::render::Renderable &r,
 	glViewport(0, 0, ctx.pixel_w, ctx.pixel_h);
 	ProgramBase *pal = decl_programs_.get("palette");
 	if (pal) {
-		std::unordered_map<std::string, GLuint> tex;
+		BuiltinTextures tex;
 		if (const Fbo *f = ctx.fbos->get(pid)) {
-			tex["fbo"] = f->texture;
+			tex.fbo = f->texture;
 		}
 		DrawState state;
 		if (pal->prepare({}, ctx, tex, state)) {
@@ -126,8 +125,7 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 	ProgramBase *decl_prog = decl_programs_.get(prog_name);
 	if (decl_prog) {
 		DrawState state;
-		static const std::unordered_map<std::string, GLuint>
-			empty_textures;
+		static const BuiltinTextures empty_textures;
 		if (decl_prog->prepare(a.fields(), ctx, empty_textures,
 				       state)) {
 			decl_prog->draw(state);
@@ -314,9 +312,9 @@ int RenderableWalker::draw_composite(
 		if (r1 >= 0) {
 			ProgramBase *pal = decl_programs_.get("palette");
 			if (pal) {
-				std::unordered_map<std::string, GLuint> tex;
+				BuiltinTextures tex;
 				if (const Fbo *f = ctx.fbos->get(r1)) {
-					tex["fbo"] = f->texture;
+					tex.fbo = f->texture;
 				}
 				DrawState state;
 				if (pal->prepare(comp.fields(), ctx, tex,
@@ -334,16 +332,16 @@ int RenderableWalker::draw_composite(
 	glClearColor(0.f, 0.f, 0.f, 0.f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	// Build builtin_textures map with t1 and t2
-	std::unordered_map<std::string, GLuint> builtin_textures;
+	// Build builtin texture slots with t1 and t2
+	BuiltinTextures builtin_textures;
 	if (r1 >= 0) {
 		if (const Fbo *f = ctx.fbos->get(r1)) {
-			builtin_textures["t1"] = f->texture;
+			builtin_textures.t1 = f->texture;
 		}
 	}
 	if (r2 >= 0) {
 		if (const Fbo *f = ctx.fbos->get(r2)) {
-			builtin_textures["t2"] = f->texture;
+			builtin_textures.t2 = f->texture;
 		}
 	}
 
@@ -370,9 +368,9 @@ int RenderableWalker::simple_compose(int old_pid, int new_pid,
 	bind_fbo(old_pid, ctx);
 	ProgramBase *pal = decl_programs_.get("palette");
 	if (pal) {
-		std::unordered_map<std::string, GLuint> tex;
+		BuiltinTextures tex;
 		if (const Fbo *f = ctx.fbos->get(new_pid)) {
-			tex["fbo"] = f->texture;
+			tex.fbo = f->texture;
 		}
 		DrawState state;
 		if (pal->prepare({}, ctx, tex, state)) {
@@ -398,9 +396,9 @@ int RenderableWalker::apply_effect(const mlregl::transport::render::Effect &e,
 		glClear(GL_COLOR_BUFFER_BIT);
 		ProgramBase *pal = decl_programs_.get("palette");
 		if (pal) {
-			std::unordered_map<std::string, GLuint> tex;
+			BuiltinTextures tex;
 			if (const Fbo *f = ctx.fbos->get(src_pid)) {
-				tex["fbo"] = f->texture;
+				tex.fbo = f->texture;
 			}
 			DrawState state;
 			if (pal->prepare(e.fields(), ctx, tex, state)) {
@@ -414,11 +412,11 @@ int RenderableWalker::apply_effect(const mlregl::transport::render::Effect &e,
 	glClearColor(0.f, 0.f, 0.f, 0.f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	// Build builtin_textures map with source texture
-	std::unordered_map<std::string, GLuint> builtin_textures;
+	// Build builtin texture slots with source texture
+	BuiltinTextures builtin_textures;
 	if (src_pid >= 0) {
 		if (const Fbo *f = ctx.fbos->get(src_pid)) {
-			builtin_textures["texture"] = f->texture;
+			builtin_textures.texture = f->texture;
 		}
 	}
 

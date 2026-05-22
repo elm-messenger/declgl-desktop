@@ -37,8 +37,11 @@ class DynamicProgram : public ProgramBase {
 
 	bool
 	prepare(const ProgramCallFields &fields, const RenderContext &ctx,
-		const std::unordered_map<std::string, GLuint> &builtin_textures,
+		const BuiltinTextures &builtin_textures,
 		DrawState &out_state) override;
+
+    protected:
+	bool after_compile() override;
 
     private:
 	using ProgramValue = mlregl::transport::backend::ProgramValue;
@@ -48,6 +51,7 @@ class DynamicProgram : public ProgramBase {
 
 	struct Mapping {
 		std::string key;
+		GLint loc = -1;
 		MappingKind kind = MappingKind::DynValue;
 		std::string prop;
 		Value static_value;

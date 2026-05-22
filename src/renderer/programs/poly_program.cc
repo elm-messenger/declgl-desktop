@@ -32,7 +32,7 @@ GLenum primitive_from_string(std::string_view s)
 
 bool PolyProgram::prepare(const ProgramCallFields &fields,
 			  const RenderContext &ctx,
-			  const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			  const BuiltinTextures &/*builtin_textures*/,
 			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -76,8 +76,8 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 	out_state.primitive = prim;
 
 	// Dynamic: position
-	out_state.add_dyn_attrib("position", 2, pos_arr.data(),
-				static_cast<size_t>(pos_arr.size() / 2));
+	add_dyn_attrib(out_state, "position", 2, pos_arr.data(),
+		       static_cast<size_t>(pos_arr.size() / 2));
 
 	if (has_indices) {
 		// Indexed draw
@@ -95,8 +95,8 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 	}
 
 	// Uniform: color
-	out_state.set_uniform_f4(
-		"color", static_cast<float>(col_arr[0]),
+	set_uniform_f4(
+		out_state, "color", static_cast<float>(col_arr[0]),
 		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
 		static_cast<float>(col_arr[3]));
 
@@ -108,7 +108,7 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 
 bool QuadProgram::prepare(const ProgramCallFields &fields,
 			  const RenderContext &ctx,
-			  const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			  const BuiltinTextures &/*builtin_textures*/,
 			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -141,14 +141,14 @@ bool QuadProgram::prepare(const ProgramCallFields &fields,
 	out_state.count = 6;
 
 	// Dynamic: position
-	out_state.add_dyn_attrib("position", 2, pos_arr.data(), 4);
+	add_dyn_attrib(out_state, "position", 2, pos_arr.data(), 4);
 
 	// Static: indices
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: color
-	out_state.set_uniform_f4(
-		"color", static_cast<float>(col_arr[0]),
+	set_uniform_f4(
+		out_state, "color", static_cast<float>(col_arr[0]),
 		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
 		static_cast<float>(col_arr[3]));
 

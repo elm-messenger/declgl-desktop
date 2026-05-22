@@ -17,23 +17,22 @@ namespace
 
 using mlregl::transport::common::Value;
 
-void set_numeric_uniform(DrawState &state, std::string name,
+void set_numeric_uniform(DrawState &state, GLint loc,
 			 const std::vector<float> &values)
 {
 	switch (values.size()) {
 	case 1:
-		state.set_uniform_f1(std::move(name), values[0]);
+		state.set_uniform_f1(loc, values[0]);
 		break;
 	case 2:
-		state.set_uniform_f2(std::move(name), values[0], values[1]);
+		state.set_uniform_f2(loc, values[0], values[1]);
 		break;
 	case 3:
-		state.set_uniform_f3(std::move(name), values[0], values[1],
-				     values[2]);
+		state.set_uniform_f3(loc, values[0], values[1], values[2]);
 		break;
 	case 4:
-		state.set_uniform_f4(std::move(name), values[0], values[1],
-				     values[2], values[3]);
+		state.set_uniform_f4(loc, values[0], values[1], values[2],
+				     values[3]);
 		break;
 	default:
 		break;
@@ -72,6 +71,17 @@ DynamicProgram::DynamicProgram(std::string name, const BackendProgram &program)
 	if (program.has_count()) {
 		count_ = make_pseudo_mapping(program.count());
 	}
+}
+
+bool DynamicProgram::after_compile()
+{
+	for (auto &uniform : uniforms_) {
+		uniform.loc = uniform_location(uniform.key);
+	}
+	for (auto &attribute : attributes_) {
+		attribute.loc = attribute_location(attribute.key);
+	}
+	return true;
 }
 
 DynamicProgram::Mapping DynamicProgram::make_mapping(
@@ -201,7 +211,7 @@ bool DynamicProgram::apply_uniform(const Mapping &mapping,
 			ctx.textures->get(field->val().string_value());
 		if (!tex)
 			return false;
-		out_state.set_uniform_tex(mapping.key, tex->id());
+		out_state.set_uniform_tex(mapping.loc, tex->id());
 		return true;
 	}
 
@@ -210,7 +220,7 @@ bool DynamicProgram::apply_uniform(const Mapping &mapping,
 		return true;
 
 	if (resolved.value->kind_case() == Value::kBoolValue) {
-		out_state.set_uniform_i1(mapping.key,
+		out_state.set_uniform_i1(mapping.loc,
 					 resolved.value->bool_value() ? 1 : 0);
 		return true;
 	}
@@ -219,7 +229,7 @@ bool DynamicProgram::apply_uniform(const Mapping &mapping,
 		mapping.kind == MappingKind::StaticValue ?
 			mapping.static_floats :
 			value_as_floats(*resolved.value);
-	set_numeric_uniform(out_state, mapping.key, values);
+	set_numeric_uniform(out_state, mapping.loc, values);
 	return true;
 }
 
@@ -274,7 +284,7 @@ bool DynamicProgram::resolve_indices(const ProgramCallFields &fields,
 
 bool DynamicProgram::prepare(
 	const ProgramCallFields &fields, const RenderContext &ctx,
-	const std::unordered_map<std::string, GLuint> & /*builtin_textures*/,
+	const BuiltinTextures & /*builtin_textures*/,
 	DrawState &out_state)
 {
 	out_state.primitive = GL_TRIANGLES;
@@ -311,11 +321,11 @@ bool DynamicProgram::prepare(
 
 		if (attribute.kind == MappingKind::StaticValue) {
 			out_state.add_static_attrib(
-				attribute.key, components,
+				attribute.loc, components,
 				attribute.static_floats.data(),
 				static_cast<GLsizei>(vertex_count));
 		} else {
-			out_state.add_dyn_attrib(attribute.key, components,
+			out_state.add_dyn_attrib(attribute.loc, components,
 						 values.data(), vertex_count);
 		}
 	}

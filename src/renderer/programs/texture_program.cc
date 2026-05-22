@@ -30,7 +30,7 @@ const Texture *TextureProgram::resolve_texture(const ProgramCallFields &fields,
 
 bool TextureProgram::prepare(const ProgramCallFields &fields,
 			     const RenderContext &ctx,
-			     const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			     const BuiltinTextures &/*builtin_textures*/,
 			     DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -58,18 +58,18 @@ bool TextureProgram::prepare(const ProgramCallFields &fields,
 	out_state.count = 6;
 
 	// Dynamic: position
-	out_state.add_dyn_attrib("position", 2, pos_arr.data(),
-				static_cast<size_t>(pos_arr.size() / 2));
+	add_dyn_attrib(out_state, "position", 2, pos_arr.data(),
+		       static_cast<size_t>(pos_arr.size() / 2));
 
 	// Static: texc (default UV quad)
-	out_state.add_static_attrib("texc", 2, kDefaultTexc, 4);
+	add_static_attrib(out_state, "texc", 2, kDefaultTexc, 4);
 
 	// Static: indices
 	out_state.static_indices = kQuadIndices;
 
 	// GLSL sampler is named `tex` (not `texture`) to avoid shadowing the
 	// GLSL texture() function.
-	out_state.set_uniform_tex("tex", tex->id());
+	set_uniform_tex(out_state, "tex", tex->id());
 
 	// Uniform: alpha (default 1.0)
 	float alpha = 1.0f;
@@ -78,7 +78,7 @@ bool TextureProgram::prepare(const ProgramCallFields &fields,
 	    alpha_f->val().kind_case() == Value::kNumberValue) {
 		alpha = static_cast<float>(alpha_f->val().number_value());
 	}
-	out_state.set_uniform_f1("alpha", alpha);
+	set_uniform_f1(out_state, "alpha", alpha);
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);
@@ -88,7 +88,7 @@ bool TextureProgram::prepare(const ProgramCallFields &fields,
 
 bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 				    const RenderContext &ctx,
-				    const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+				    const BuiltinTextures &/*builtin_textures*/,
 				    DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -127,8 +127,8 @@ bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 	out_state.count = 6;
 
 	// Dynamic: position
-	out_state.add_dyn_attrib("position", 2, pos_arr.data(),
-				static_cast<size_t>(pos_arr.size() / 2));
+	add_dyn_attrib(out_state, "position", 2, pos_arr.data(),
+		       static_cast<size_t>(pos_arr.size() / 2));
 
 	// Dynamic: texc (from input)
 	std::vector<float> texc_floats;
@@ -136,14 +136,14 @@ bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 	for (double d : texc_arr) {
 		texc_floats.push_back(static_cast<float>(d));
 	}
-	out_state.add_dyn_attrib("texc", 2, texc_floats.data(),
-				texc_floats.size() / 2);
+	add_dyn_attrib(out_state, "texc", 2, texc_floats.data(),
+		       texc_floats.size() / 2);
 
 	// Static: indices
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: texture
-	out_state.set_uniform_tex("tex", tex->id());
+	set_uniform_tex(out_state, "tex", tex->id());
 
 	// Uniform: alpha (default 1.0)
 	float alpha = 1.0f;
@@ -152,7 +152,7 @@ bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 	    alpha_f->val().kind_case() == Value::kNumberValue) {
 		alpha = static_cast<float>(alpha_f->val().number_value());
 	}
-	out_state.set_uniform_f1("alpha", alpha);
+	set_uniform_f1(out_state, "alpha", alpha);
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);
@@ -162,7 +162,7 @@ bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 
 bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 				     const RenderContext &ctx,
-				     const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+				     const BuiltinTextures &/*builtin_textures*/,
 				     DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -190,17 +190,17 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 	out_state.count = 6;
 
 	// Static: texc (default UV quad) - no position attribute
-	out_state.add_static_attrib("texc", 2, kDefaultTexc, 4);
+	add_static_attrib(out_state, "texc", 2, kDefaultTexc, 4);
 
 	// Static: indices
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: texture
-	out_state.set_uniform_tex("tex", tex->id());
+	set_uniform_tex(out_state, "tex", tex->id());
 
 	// Uniform: posize
-	out_state.set_uniform_f4(
-		"posize", static_cast<float>(posize_arr[0]),
+	set_uniform_f4(
+		out_state, "posize", static_cast<float>(posize_arr[0]),
 		static_cast<float>(posize_arr[1]),
 		static_cast<float>(posize_arr[2]),
 		static_cast<float>(posize_arr[3]));
@@ -212,7 +212,7 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 	    angle_f->val().kind_case() == Value::kNumberValue) {
 		angle = static_cast<float>(angle_f->val().number_value());
 	}
-	out_state.set_uniform_f1("angle", angle);
+	set_uniform_f1(out_state, "angle", angle);
 
 	// Uniform: alpha (default 1.0)
 	float alpha = 1.0f;
@@ -221,7 +221,7 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 	    alpha_f->val().kind_case() == Value::kNumberValue) {
 		alpha = static_cast<float>(alpha_f->val().number_value());
 	}
-	out_state.set_uniform_f1("alpha", alpha);
+	set_uniform_f1(out_state, "alpha", alpha);
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);
@@ -231,7 +231,7 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 
 bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 					    const RenderContext &ctx,
-					    const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+					    const BuiltinTextures &/*builtin_textures*/,
 					    DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -279,20 +279,20 @@ bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 	out_state.count = 6;
 
 	// Dynamic: texc (expanded)
-	out_state.add_dyn_attrib("texc", 2, expanded_texc.data(), 4);
+	add_dyn_attrib(out_state, "texc", 2, expanded_texc.data(), 4);
 
 	// Static: texc2 (NDC corners for posize expansion)
-	out_state.add_static_attrib("texc2", 2, kTexc2, 4);
+	add_static_attrib(out_state, "texc2", 2, kTexc2, 4);
 
 	// Static: indices
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: texture
-	out_state.set_uniform_tex("tex", tex->id());
+	set_uniform_tex(out_state, "tex", tex->id());
 
 	// Uniform: posize
-	out_state.set_uniform_f4(
-		"posize", static_cast<float>(posize_arr[0]),
+	set_uniform_f4(
+		out_state, "posize", static_cast<float>(posize_arr[0]),
 		static_cast<float>(posize_arr[1]),
 		static_cast<float>(posize_arr[2]),
 		static_cast<float>(posize_arr[3]));
@@ -304,7 +304,7 @@ bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 	    angle_f->val().kind_case() == Value::kNumberValue) {
 		angle = static_cast<float>(angle_f->val().number_value());
 	}
-	out_state.set_uniform_f1("angle", angle);
+	set_uniform_f1(out_state, "angle", angle);
 
 	// Uniform: alpha (default 1.0)
 	float alpha = 1.0f;
@@ -313,7 +313,7 @@ bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 	    alpha_f->val().kind_case() == Value::kNumberValue) {
 		alpha = static_cast<float>(alpha_f->val().number_value());
 	}
-	out_state.set_uniform_f1("alpha", alpha);
+	set_uniform_f1(out_state, "alpha", alpha);
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);

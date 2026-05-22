@@ -2,6 +2,7 @@
 
 #include "renderer/program_base.h"
 
+#include <algorithm>
 #include <array>
 
 #include "log/log.h"
@@ -23,52 +24,119 @@ const ProgramCallField *find_field(const ProgramCallFields &fields,
 
 bool ProgramBase::compile()
 {
-	return program_.build(name(), vert_source(), frag_source());
+	if (!program_.build(name(), vert_source(), frag_source()))
+		return false;
+	return after_compile();
 }
 
-// --- Shared streaming buffers ---
+// --- Program-local streaming/static buffers ---
 
 namespace
 {
-struct StreamingBuffers {
-	GLuint vao = 0;
-	GLuint vbo = 0;
-	GLuint ebo = 0;
+struct GlobalRenderState {
 	GLuint last_program = 0;
 };
-StreamingBuffers &streaming_buffers()
+GlobalRenderState &global_render_state()
 {
-	static StreamingBuffers s;
+	static GlobalRenderState s;
 	return s;
 }
 } // namespace
 
-void ProgramBase::ensure_streaming_buffers()
+ProgramBase::~ProgramBase()
 {
-	auto &s = streaming_buffers();
-	if (s.vao != 0)
-		return;
-	glGenVertexArrays(1, &s.vao);
-	glGenBuffers(1, &s.vbo);
-	glGenBuffers(1, &s.ebo);
+	for (auto &b : static_attrib_buffers_) {
+		if (b.buffer)
+			glDeleteBuffers(1, &b.buffer);
+	}
+	for (auto &b : static_index_buffers_) {
+		if (b.buffer)
+			glDeleteBuffers(1, &b.buffer);
+	}
+	if (dynamic_vbo_)
+		glDeleteBuffers(1, &dynamic_vbo_);
+	if (dynamic_ebo_)
+		glDeleteBuffers(1, &dynamic_ebo_);
+	if (vao_)
+		glDeleteVertexArrays(1, &vao_);
 }
 
-GLuint ProgramBase::stream_vao()
+void ProgramBase::ensure_program_buffers()
 {
-	return streaming_buffers().vao;
+	if (vao_ != 0)
+		return;
+	glGenVertexArrays(1, &vao_);
+	glGenBuffers(1, &dynamic_vbo_);
+	glGenBuffers(1, &dynamic_ebo_);
 }
-GLuint ProgramBase::stream_vbo()
+
+GLuint ProgramBase::static_attrib_buffer(const DrawState::StaticAttrib &a)
 {
-	return streaming_buffers().vbo;
+	for (const auto &b : static_attrib_buffers_) {
+		if (b.data == a.data && b.vertex_count == a.vertex_count &&
+		    b.components == a.components) {
+			return b.buffer;
+		}
+	}
+
+	StaticAttribBuffer b;
+	b.data = a.data;
+	b.vertex_count = a.vertex_count;
+	b.components = a.components;
+	glGenBuffers(1, &b.buffer);
+	glBindBuffer(GL_ARRAY_BUFFER, b.buffer);
+	glBufferData(GL_ARRAY_BUFFER,
+		     static_cast<GLsizeiptr>(a.vertex_count) * a.components *
+			     sizeof(float),
+		     a.data, GL_STATIC_DRAW);
+	static_attrib_buffers_.push_back(b);
+	return b.buffer;
 }
-GLuint ProgramBase::stream_ebo()
+
+GLuint ProgramBase::static_index_buffer(const uint32_t *data, GLsizei count)
 {
-	return streaming_buffers().ebo;
+	for (const auto &b : static_index_buffers_) {
+		if (b.data == data && b.count == count)
+			return b.buffer;
+	}
+
+	StaticIndexBuffer b;
+	b.data = data;
+	b.count = count;
+	glGenBuffers(1, &b.buffer);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, b.buffer);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+		     static_cast<GLsizeiptr>(count) * sizeof(uint32_t), data,
+		     GL_STATIC_DRAW);
+	static_index_buffers_.push_back(b);
+	return b.buffer;
 }
 
 GLuint &ProgramBase::last_program_bound()
 {
-	return streaming_buffers().last_program;
+	return global_render_state().last_program;
+}
+
+GLint ProgramBase::cached_uniform_location(std::string_view name) const
+{
+	for (const auto &entry : uniform_location_cache_) {
+		if (entry.name == name)
+			return entry.loc;
+	}
+	const GLint loc = program_.uniform_location(name);
+	uniform_location_cache_.push_back({ std::string(name), loc });
+	return loc;
+}
+
+GLint ProgramBase::cached_attribute_location(std::string_view name) const
+{
+	for (const auto &entry : attribute_location_cache_) {
+		if (entry.name == name)
+			return entry.loc;
+	}
+	const GLint loc = program_.attribute_location(name);
+	attribute_location_cache_.push_back({ std::string(name), loc });
+	return loc;
 }
 
 void ProgramBase::draw(const DrawState &state)
@@ -83,7 +151,10 @@ void ProgramBase::draw(const DrawState &state)
 	// Set uniforms
 	int texture_unit = 0;
 	for (const auto &u : state.uniforms) {
-		const GLint loc = program_.uniform_location(u.name);
+		const GLint loc = u.loc >= 0 ? u.loc :
+				     !u.name.empty() ?
+					     program_.uniform_location(u.name) :
+					     -1;
 		if (loc < 0)
 			continue;
 
@@ -112,49 +183,51 @@ void ProgramBase::draw(const DrawState &state)
 		}
 	}
 
-	// Bind shared streaming VAO
-	ensure_streaming_buffers();
-	glBindVertexArray(stream_vao());
+	// Bind program-local VAO. Static buffers are cached per ProgramBase
+	// instance; dynamic buffers are reused for all draws of this program.
+	ensure_program_buffers();
+	glBindVertexArray(vao_);
 
-	// Calculate total attribute data size
+	// Calculate dynamic attribute data size. Static attributes live in
+	// persistent GL_STATIC_DRAW buffers and are not re-uploaded per draw.
 	GLsizeiptr total_size = 0;
-	for (const auto &a : state.static_attribs) {
-		total_size += static_cast<GLsizeiptr>(a.vertex_count) *
-			      a.components * sizeof(float);
-	}
 	for (const auto &a : state.dyn_attribs) {
 		total_size +=
 			static_cast<GLsizeiptr>(a.data.size()) * sizeof(float);
 	}
 
-	// Orphan and upload attribute data
-	glBindBuffer(GL_ARRAY_BUFFER, stream_vbo());
-	glBufferData(GL_ARRAY_BUFFER, total_size, nullptr, GL_STREAM_DRAW);
+	// Orphan dynamic attribute storage only when dynamic data exists.
+	glBindBuffer(GL_ARRAY_BUFFER, dynamic_vbo_);
+	if (total_size > 0) {
+		glBufferData(GL_ARRAY_BUFFER, total_size, nullptr, GL_STREAM_DRAW);
+	}
 
 	GLintptr offset = 0;
-	std::vector<GLuint> enabled_attribs;
+	std::vector<GLuint> used_attribs;
 
-	// Static attributes (pointer to program-owned data)
+	// Static attributes (cached in program-owned GPU buffers)
 	for (const auto &a : state.static_attribs) {
-		const GLint loc = program_.attribute_location(a.name);
+		const GLint loc = a.loc >= 0 ? a.loc :
+				     !a.name.empty() ?
+					     program_.attribute_location(a.name) :
+					     -1;
 		if (loc < 0)
 			continue;
 
-		const GLsizeiptr byte_size =
-			static_cast<GLsizeiptr>(a.vertex_count) * a.components *
-			sizeof(float);
-		glBufferSubData(GL_ARRAY_BUFFER, offset, byte_size, a.data);
+		glBindBuffer(GL_ARRAY_BUFFER, static_attrib_buffer(a));
 		glEnableVertexAttribArray(static_cast<GLuint>(loc));
 		glVertexAttribPointer(static_cast<GLuint>(loc), a.components,
-				      GL_FLOAT, GL_FALSE, 0,
-				      reinterpret_cast<const void *>(offset));
-		enabled_attribs.push_back(static_cast<GLuint>(loc));
-		offset += byte_size;
+				      GL_FLOAT, GL_FALSE, 0, nullptr);
+		used_attribs.push_back(static_cast<GLuint>(loc));
 	}
 
 	// Dynamic attributes (copied into DrawState)
+	glBindBuffer(GL_ARRAY_BUFFER, dynamic_vbo_);
 	for (const auto &a : state.dyn_attribs) {
-		const GLint loc = program_.attribute_location(a.name);
+		const GLint loc = a.loc >= 0 ? a.loc :
+				     !a.name.empty() ?
+					     program_.attribute_location(a.name) :
+					     -1;
 		if (loc < 0)
 			continue;
 
@@ -166,20 +239,33 @@ void ProgramBase::draw(const DrawState &state)
 		glVertexAttribPointer(static_cast<GLuint>(loc), a.components,
 				      GL_FLOAT, GL_FALSE, 0,
 				      reinterpret_cast<const void *>(offset));
-		enabled_attribs.push_back(static_cast<GLuint>(loc));
+		used_attribs.push_back(static_cast<GLuint>(loc));
 		offset += byte_size;
 	}
 
+	// Keep per-program VAO state persistent, but disable attributes that were
+	// used by an earlier draw of this program and are absent now.
+	for (GLuint loc : enabled_attribs_) {
+		if (std::find(used_attribs.begin(), used_attribs.end(), loc) ==
+		    used_attribs.end()) {
+			glDisableVertexAttribArray(loc);
+		}
+	}
+	enabled_attribs_ = std::move(used_attribs);
+
 	// Draw
 	if (state.indexed) {
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, stream_ebo());
-		const uint32_t *idx_data = state.static_indices ?
-						   state.static_indices :
-						   state.indices.data();
-		const GLsizeiptr idx_size =
-			static_cast<GLsizeiptr>(state.count) * sizeof(uint32_t);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, idx_size, idx_data,
-			     GL_STREAM_DRAW);
+		if (state.static_indices) {
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,
+				     static_index_buffer(state.static_indices,
+							 state.count));
+		} else {
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dynamic_ebo_);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+				     static_cast<GLsizeiptr>(state.count) *
+					     sizeof(uint32_t),
+				     state.indices.data(), GL_STREAM_DRAW);
+		}
 		glDrawElements(state.primitive, state.count, GL_UNSIGNED_INT,
 			       nullptr);
 	} else {
@@ -197,15 +283,6 @@ void ProgramBase::draw(const DrawState &state)
 		}
 		glDrawArrays(state.primitive, 0, vert_count);
 	}
-
-	// Cleanup: disable vertex attribs
-	for (GLuint loc : enabled_attribs) {
-		glDisableVertexAttribArray(loc);
-	}
-
-	glBindVertexArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 }
 
 } // namespace declgl

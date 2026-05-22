@@ -9,7 +9,7 @@ namespace programs
 
 bool RectProgram::prepare(const ProgramCallFields &fields,
 			  const RenderContext &ctx,
-			  const std::unordered_map<std::string, GLuint> &/*builtin_textures*/,
+			  const BuiltinTextures &/*builtin_textures*/,
 			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -42,14 +42,14 @@ bool RectProgram::prepare(const ProgramCallFields &fields,
 	out_state.count = 6;
 
 	// Static position (unit quad [0,1]^2)
-	out_state.add_static_attrib("position", 2, kQuadPos, 4);
+	add_static_attrib(out_state, "position", 2, kQuadPos, 4);
 
 	// Static indices
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: posize
-	out_state.set_uniform_f4(
-		"posize", static_cast<float>(posize_arr[0]),
+	set_uniform_f4(
+		out_state, "posize", static_cast<float>(posize_arr[0]),
 		static_cast<float>(posize_arr[1]),
 		static_cast<float>(posize_arr[2]),
 		static_cast<float>(posize_arr[3]));
@@ -61,11 +61,11 @@ bool RectProgram::prepare(const ProgramCallFields &fields,
 	    angle_f->val().kind_case() == Value::kNumberValue) {
 		angle = static_cast<float>(angle_f->val().number_value());
 	}
-	out_state.set_uniform_f1("angle", angle);
+	set_uniform_f1(out_state, "angle", angle);
 
 	// Uniform: color
-	out_state.set_uniform_f4(
-		"color", static_cast<float>(col_arr[0]),
+	set_uniform_f4(
+		out_state, "color", static_cast<float>(col_arr[0]),
 		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
 		static_cast<float>(col_arr[3]));
 

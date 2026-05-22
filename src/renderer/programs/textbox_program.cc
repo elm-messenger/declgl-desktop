@@ -61,7 +61,7 @@ bool field_bool(const ProgramCallFields &fields, std::string_view key,
 
 bool TextboxProgram::prepare(
 	const ProgramCallFields &fields, const RenderContext &ctx,
-	const std::unordered_map<std::string, GLuint> & /*builtin_textures*/,
+	const BuiltinTextures & /*builtin_textures*/,
 	DrawState &out_state)
 {
 	if (!ctx.fonts || !ctx.textures) {
@@ -408,27 +408,27 @@ bool TextboxProgram::prepare(
 	out_state.count = static_cast<GLsizei>(idx_buf.size());
 
 	// Dynamic attributes: position and uv
-	out_state.add_dyn_attrib("position", 2, pos_buf.data(),
-				 pos_buf.size() / 2);
-	out_state.add_dyn_attrib("uv", 2, uv_buf.data(), uv_buf.size() / 2);
+	add_dyn_attrib(out_state, "position", 2, pos_buf.data(),
+		       pos_buf.size() / 2);
+	add_dyn_attrib(out_state, "uv", 2, uv_buf.data(), uv_buf.size() / 2);
 
 	// Dynamic indices
 	out_state.indices = std::move(idx_buf);
 
 	// Uniforms
 	set_builtin_uniforms(ctx, out_state);
-	out_state.set_uniform_f2("offset", offset[0], offset[1]);
-	out_state.set_uniform_f4("color", color[0], color[1], color[2],
-				 color[3]);
-	out_state.set_uniform_f1("thickness", thickness);
+	set_uniform_f2(out_state, "offset", offset[0], offset[1]);
+	set_uniform_f4(out_state, "color", color[0], color[1], color[2],
+		       color[3]);
+	set_uniform_f1(out_state, "thickness", thickness);
 
 	// unitRange comes from the primary font.
 	const Font *fpri = fonts[0];
-	out_state.set_uniform_f2("unitRange", fpri->unit_range_x(),
-				 fpri->unit_range_y());
+	set_uniform_f2(out_state, "unitRange", fpri->unit_range_x(),
+		       fpri->unit_range_y());
 
 	// Atlas texture
-	out_state.set_uniform_tex("tMap", atlas->id());
+	set_uniform_tex(out_state, "tMap", atlas->id());
 
 	return true;
 }

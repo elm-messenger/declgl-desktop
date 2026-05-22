@@ -23,7 +23,7 @@ class TriangleProgram : public ProgramBase {
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
-		     const std::unordered_map<std::string, GLuint> &builtin_textures,
+		     const BuiltinTextures &builtin_textures,
 		     DrawState &out_state) override;
 };
 
