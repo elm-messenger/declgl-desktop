@@ -40,8 +40,11 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "engine/engine.h"
 #include "log/log.h"
@@ -127,6 +130,122 @@ PacingConfig &pacing_config()
 	static PacingConfig c;
 	return c;
 }
+
+// ---------------------------------------------------------------------------
+// Profiling mode (DECLGL_PROFILE env var)
+// ---------------------------------------------------------------------------
+// When enabled, records per-frame latency for:
+//   - events:  SDL event pump
+//   - update:  OCaml update callback
+//   - view:    OCaml view callback + proto decode
+//   - render:  C++ render + GL calls
+//   - swap:    SDL_GL_SwapWindow
+// On shutdown, writes a CSV to declgl_profile.csv (or path from env).
+
+struct ProfileSample {
+	uint64_t frame;        // frame number (0-based)
+	uint64_t events_ns;    // SDL event pump
+	uint64_t update_ns;    // OCaml update callback
+	uint64_t view_ns;      // OCaml view + proto decode
+	uint64_t render_ns;    // C++ render
+	uint64_t swap_ns;      // GL swap
+};
+
+struct ProfilingState {
+	bool enabled = false;
+	std::string output_path;
+	std::vector<ProfileSample> samples;
+	uint64_t frame_counter = 0;
+};
+
+ProfilingState &profiling()
+{
+	static ProfilingState s;
+	return s;
+}
+
+void profiling_init()
+{
+	const char *env = std::getenv("DECLGL_PROFILE");
+	if (!env || !*env) {
+		return;
+	}
+	profiling().enabled = true;
+	// Allow DECLGL_PROFILE=path/to/file.csv or just DECLGL_PROFILE=1
+	if (std::strcmp(env, "1") == 0 || std::strcmp(env, "true") == 0) {
+		profiling().output_path = "declgl_profile.csv";
+	} else {
+		profiling().output_path = env;
+	}
+	profiling().samples.reserve(65536);
+}
+
+void profiling_record(const ProfileSample &s)
+{
+	if (!profiling().enabled) {
+		return;
+	}
+	profiling().samples.push_back(s);
+}
+
+void profiling_shutdown()
+{
+	ProfilingState &s = profiling();
+	if (!s.enabled || s.samples.empty()) {
+		return;
+	}
+
+	std::ofstream f(s.output_path);
+	if (!f.is_open()) {
+		DECLGL_LOG_ERROR("profiling: cannot open '{}' for write",
+				 s.output_path);
+		return;
+	}
+
+	// CSV header
+	f << "frame,events_ns,update_ns,view_ns,render_ns,swap_ns\n";
+
+	// Summary stats for convenience (computed while writing)
+	uint64_t total_events = 0, total_update = 0, total_view = 0;
+	uint64_t total_render = 0, total_swap = 0;
+
+	for (const auto &sample : s.samples) {
+		f << sample.frame << ','
+		  << sample.events_ns << ','
+		  << sample.update_ns << ','
+		  << sample.view_ns << ','
+		  << sample.render_ns << ','
+		  << sample.swap_ns << '\n';
+
+		total_events += sample.events_ns;
+		total_update += sample.update_ns;
+		total_view += sample.view_ns;
+		total_render += sample.render_ns;
+		total_swap += sample.swap_ns;
+	}
+
+	f.close();
+
+	const size_t n = s.samples.size();
+	const double to_ms = 1.0 / 1e6;
+	DECLGL_LOG_INFO(
+		"profiling: wrote {} frames to '{}'\n"
+		"  avg per-frame (ms): events={:.3f} update={:.3f} "
+		"view={:.3f} render={:.3f} swap={:.3f}",
+		n, s.output_path,
+		static_cast<double>(total_events) / n * to_ms,
+		static_cast<double>(total_update) / n * to_ms,
+		static_cast<double>(total_view) / n * to_ms,
+		static_cast<double>(total_render) / n * to_ms,
+		static_cast<double>(total_swap) / n * to_ms);
+
+	// Reset for potential re-run
+	s.samples.clear();
+	s.frame_counter = 0;
+	s.enabled = false;
+}
+
+// ---------------------------------------------------------------------------
 
 // Shared time origin: the SDL tick captured when the run loop first
 // entered. Same value the bridge subtracts before it calls
@@ -223,10 +342,16 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 {
 	if (quit_requested_flag())
 		return false;
+
+	ProfileSample sample{};
+	sample.frame = profiling().frame_counter++;
+
+	const Uint64 t0 = SDL_GetTicksNS();
 	if (!pump_events_and_dispatch(cb))
 		return false;
+	const Uint64 t1 = SDL_GetTicksNS();
+	sample.events_ns = t1 - t0;
 
-	const Uint64 frame_start_ns = SDL_GetTicksNS();
 	const double now_ms = static_cast<double>(SDL_GetTicks() - start_ticks);
 
 	{
@@ -234,6 +359,8 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 		caml_callback(*cb.update, caml_copy_double(now_ms));
 		CAMLdrop;
 	}
+	const Uint64 t2 = SDL_GetTicksNS();
+	sample.update_ns = t2 - t1;
 
 	// [update] above can ship a QuitRegl; honour it before we burn
 	// view/render work on a frame whose result will be discarded.
@@ -261,16 +388,37 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 				// 		frame_log - 1);
 				// }
 				// Hand off to the engine for the actual draw calls.
+				const Uint64 t_view_end = SDL_GetTicksNS();
+				sample.view_ns = t_view_end - t2;
 				engine()->render(r);
+				const Uint64 t_render_end = SDL_GetTicksNS();
+				sample.render_ns = t_render_end - t_view_end;
 			} else {
 				DECLGL_LOG_ERROR("view: parse failed ({} B)",
 						 len);
+				const Uint64 t_view_end = SDL_GetTicksNS();
+				sample.view_ns = t_view_end - t2;
+				sample.render_ns = 0;
 			}
+		} else {
+			const Uint64 t_view_end = SDL_GetTicksNS();
+			sample.view_ns = t_view_end - t2;
+			sample.render_ns = 0;
 		}
 		CAMLdrop;
 	}
 
 	SDL_GL_SwapWindow(window);
+	const Uint64 t3 = SDL_GetTicksNS();
+	// If we didn't take the render path above (e.g. no view bytes),
+	// measure swap from end of view phase.
+	if (sample.render_ns == 0 && sample.view_ns > 0) {
+		sample.swap_ns = t3 - (t2 + sample.view_ns);
+	} else {
+		sample.swap_ns = t3 - (t2 + sample.view_ns + sample.render_ns);
+	}
+
+	profiling_record(sample);
 
 	// Manual frame pacing. With interval_ms <= 0 the swap above is
 	// already throttled by vsync (set in [init_window_and_gl]); with
@@ -278,7 +426,7 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 	// we sleep here to hit the requested ms budget.
 	const double interval_ms = pacing_config().interval_ms;
 	if (interval_ms > 0.0) {
-		const Uint64 elapsed_ns = SDL_GetTicksNS() - frame_start_ns;
+		const Uint64 elapsed_ns = t3 - t0;
 		const Uint64 target_ns =
 			static_cast<Uint64>(interval_ms * 1.0e6);
 		if (elapsed_ns < target_ns)
@@ -315,9 +463,11 @@ void enter_run_loop()
 
 	loop_running_flag() = true;
 	quit_requested_flag() = false;
+	profiling_init();
 	while (drive_one_frame(cb, window, start_ticks)) {
 		// Loop body intentionally empty — drive_one_frame does it all.
 	}
+	profiling_shutdown();
 	loop_running_flag() = false;
 	quit_requested_flag() = false;
 
