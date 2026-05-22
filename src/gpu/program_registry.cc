@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "builtin_shaders.h"
+#include "log/log.h"
 
 namespace declgl
 {
@@ -35,10 +36,10 @@ bool ProgramRegistry::register_builtin_alias(std::string_view name,
 	const auto frag =
 		builtin_shader_source(frag_source_name, ShaderKind::FRAG);
 	if (vert.empty() || frag.empty()) {
-		std::fprintf(
-			stderr,
-			"[declgl/registry] builtin '%.*s' source missing "
-			"(vert from '%.*s'=%zu bytes, frag from '%.*s'=%zu bytes)\n",
+		declgl::log::error(
+			"declgl/registry",
+			"builtin '%.*s' source missing "
+			"(vert from '%.*s'=%zu bytes, frag from '%.*s'=%zu bytes)",
 			static_cast<int>(name.size()), name.data(),
 			static_cast<int>(vert_source_name.size()),
 			vert_source_name.data(), vert.size(),

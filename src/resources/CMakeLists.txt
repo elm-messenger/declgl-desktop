@@ -26,6 +26,7 @@ target_link_libraries(declgl_resources
     PUBLIC
         glad
         Threads::Threads
+        declgl_log
     PRIVATE
         stb_image
         nlohmann_json::nlohmann_json

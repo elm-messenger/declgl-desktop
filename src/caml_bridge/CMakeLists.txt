@@ -48,5 +48,6 @@ target_link_libraries(declgl_caml_bridge
     PUBLIC
         declgl_engine
         declgl_proto
+        declgl_log
         SDL3::SDL3
 )

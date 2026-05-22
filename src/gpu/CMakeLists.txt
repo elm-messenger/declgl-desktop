@@ -15,4 +15,5 @@ target_link_libraries(declgl_gpu
     PUBLIC
         glad
         declgl_shaders
+        declgl_log
 )

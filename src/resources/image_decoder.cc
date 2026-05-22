@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include "log/log.h"
+
 namespace declgl
 {
 
@@ -35,9 +37,9 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
 		stbi_load(path.c_str(), &w, &h, &n_in, /*desired_channels=*/4);
 	if (!raw) {
 		const char *why = stbi_failure_reason();
-		std::fprintf(stderr,
-			     "[declgl/image] stbi_load failed for '%s': %s\n",
-			     path.c_str(), why ? why : "(no reason)");
+		declgl::log::error("declgl/image",
+				   "stbi_load failed for '%s': %s",
+				   path.c_str(), why ? why : "(no reason)");
 		return out;
 	}
 
@@ -65,10 +67,10 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
 	const int ch = std::max(0, ey - sy);
 
 	if (cw == 0 || ch == 0) {
-		std::fprintf(stderr,
-			     "[declgl/image] crop (%d,%d)+(%dx%d) is outside "
-			     "image %dx%d\n",
-			     crop.x, crop.y, crop.width, crop.height, w, h);
+		declgl::log::error(
+			"declgl/image",
+			"crop (%d,%d)+(%dx%d) is outside image %dx%d",
+			crop.x, crop.y, crop.width, crop.height, w, h);
 		stbi_image_free(raw);
 		return out;
 	}
@@ -76,9 +78,9 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
 	auto *buf = new (std::nothrow)
 		uint8_t[static_cast<std::size_t>(cw * ch * 4)];
 	if (!buf) {
-		std::fprintf(stderr,
-			     "[declgl/image] OOM allocating %d-byte crop\n",
-			     cw * ch * 4);
+		declgl::log::error("declgl/image",
+				   "OOM allocating %d-byte crop",
+				   cw * ch * 4);
 		stbi_image_free(raw);
 		return out;
 	}

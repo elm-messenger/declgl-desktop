@@ -15,6 +15,7 @@ target_include_directories(declgl_audio PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(declgl_audio
     PUBLIC
         declgl_proto
+        declgl_log
         SDL3::SDL3
     PRIVATE
         stb_vorbis

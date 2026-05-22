@@ -27,6 +27,7 @@
 #include <cstring>
 #include <utility>
 
+#include "log/log.h"
 #include "transport_audio.pb.h"
 
 namespace declgl
@@ -60,17 +61,17 @@ void ship(AudioEventSink &sink,
 		// log once so the misconfig is visible.
 		static bool warned = false;
 		if (!warned) {
-			std::fprintf(stderr,
-				     "[declgl/audio] AudioBackendEvent dropped: "
-				     "no event_sink registered\n");
+			declgl::log::warn("declgl/audio",
+					  "AudioBackendEvent dropped: "
+					  "no event_sink registered");
 			warned = true;
 		}
 		return;
 	}
 	std::string buf;
 	if (!ev.SerializeToString(&buf)) {
-		std::fprintf(stderr,
-			     "[declgl/audio] AudioBackendEvent serialize failed\n");
+		declgl::log::error("declgl/audio",
+				   "AudioBackendEvent serialize failed");
 		return;
 	}
 	sink(reinterpret_cast<const uint8_t *>(buf.data()), buf.size());
@@ -125,9 +126,9 @@ bool AudioEngine::ensure_open()
 	// guard with SDL_InitSubSystem so this works whether the engine
 	// was inited yet or not.
 	if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-		std::fprintf(stderr,
-			     "[declgl/audio] SDL_InitSubSystem(AUDIO): %s\n",
-			     SDL_GetError());
+		declgl::log::warn("declgl/audio",
+				  "SDL_InitSubSystem(AUDIO): %s",
+				  SDL_GetError());
 		return false;
 	}
 
@@ -142,9 +143,9 @@ bool AudioEngine::ensure_open()
 	stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
 					    &want, &audio_callback_thunk, this);
 	if (!stream_) {
-		std::fprintf(stderr,
-			     "[declgl/audio] SDL_OpenAudioDeviceStream: %s\n",
-			     SDL_GetError());
+		declgl::log::warn("declgl/audio",
+				  "SDL_OpenAudioDeviceStream: %s",
+				  SDL_GetError());
 		return false;
 	}
 
@@ -154,18 +155,19 @@ bool AudioEngine::ensure_open()
 	SDL_AudioSpec src_spec{};
 	SDL_AudioSpec dst_spec{};
 	if (!SDL_GetAudioStreamFormat(stream_, &src_spec, &dst_spec)) {
-		std::fprintf(stderr,
-			     "[declgl/audio] SDL_GetAudioStreamFormat: %s\n",
-			     SDL_GetError());
+		declgl::log::warn("declgl/audio",
+				  "SDL_GetAudioStreamFormat: %s",
+				  SDL_GetError());
 	}
 	device_spec_ = src_spec; // input side — what we feed in
 	device_sample_rate_ = src_spec.freq > 0 ?
 				      static_cast<uint32_t>(src_spec.freq) :
 				      48000;
 
-	std::printf(
-		"[declgl/audio] device opened: src %d Hz x %d ch (we feed %s) "
-		"-> dst %d Hz x %d ch\n",
+	declgl::log::info(
+		"declgl/audio",
+		"device opened: src %d Hz x %d ch (we feed %s) "
+		"-> dst %d Hz x %d ch",
 		src_spec.freq, src_spec.channels,
 		src_spec.format == SDL_AUDIO_F32 ? "f32" : "?",
 		dst_spec.freq, dst_spec.channels);
@@ -187,9 +189,10 @@ int32_t AudioEngine::register_buffer(std::string audio_url,
 				     DecodedAudio buffer)
 {
 	if (!buffer.ok()) {
-		std::fprintf(stderr,
-			     "[declgl/audio] register_buffer: empty buffer for '%s'\n",
-			     audio_url.c_str());
+		declgl::log::error(
+			"declgl/audio",
+			"register_buffer: empty buffer for '%s'",
+			audio_url.c_str());
 		return -1;
 	}
 
@@ -271,8 +274,8 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 	using namespace mlregl::transport::audio;
 	AudioCommandBatch batch;
 	if (!batch.ParseFromArray(bytes, static_cast<int>(len))) {
-		std::fprintf(stderr,
-			     "[declgl/audio] AudioCommandBatch parse failed\n");
+		declgl::log::error("declgl/audio",
+				   "AudioCommandBatch parse failed");
 		return false;
 	}
 
@@ -299,9 +302,9 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 			c.node_group_id = s.node_group_id();
 			const uint32_t bid = s.buffer_id();
 			if (bid >= buffers_.size() || !buffers_[bid]) {
-				std::fprintf(
-					stderr,
-					"[declgl/audio] start_sound: unknown buffer_id=%u (group=%u)\n",
+				declgl::log::error(
+					"declgl/audio",
+					"start_sound: unknown buffer_id=%u (group=%u)",
 					bid, c.node_group_id);
 				continue;
 			}

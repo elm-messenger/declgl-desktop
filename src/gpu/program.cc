@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+#include "log/log.h"
+
 namespace declgl
 {
 
@@ -139,16 +141,16 @@ bool Program::build(std::string_view name, std::string_view vert_src,
 	GLuint vs = compile_stage(GL_VERTEX_SHADER, vert_src, log);
 	if (!vs) {
 		error_ = "vertex shader: " + log;
-		std::fprintf(stderr, "[declgl/program:%s] %s\n", name_.c_str(),
-			     error_.c_str());
+		declgl::log::error("declgl/program", "name_=%s %s",
+				   name_.c_str(), error_.c_str());
 		return false;
 	}
 	GLuint fs = compile_stage(GL_FRAGMENT_SHADER, frag_src, log);
 	if (!fs) {
 		glDeleteShader(vs);
 		error_ = "fragment shader: " + log;
-		std::fprintf(stderr, "[declgl/program:%s] %s\n", name_.c_str(),
-			     error_.c_str());
+		declgl::log::error("declgl/program", "name_=%s %s",
+				   name_.c_str(), error_.c_str());
 		return false;
 	}
 
@@ -168,8 +170,8 @@ bool Program::build(std::string_view name, std::string_view vert_src,
 		glGetProgramInfoLog(program_, static_cast<GLsizei>(buf.size()),
 				    nullptr, buf.data());
 		error_ = std::string("link: ") + buf.data();
-		std::fprintf(stderr, "[declgl/program:%s] %s\n", name_.c_str(),
-			     error_.c_str());
+		declgl::log::error("declgl/program", "name_=%s %s",
+				   name_.c_str(), error_.c_str());
 		glDeleteProgram(program_);
 		program_ = 0;
 		return false;
@@ -178,8 +180,10 @@ bool Program::build(std::string_view name, std::string_view vert_src,
 	enumerate_uniforms(program_, uniforms_);
 	enumerate_attributes(program_, attributes_);
 	error_.clear();
-	std::printf("[declgl/program:%s] linked: %zu uniforms, %zu attribs\n",
-		    name_.c_str(), uniforms_.size(), attributes_.size());
+	declgl::log::info("declgl/program",
+			  "name_=%s linked: %zu uniforms, %zu attribs",
+			  name_.c_str(), uniforms_.size(),
+			  attributes_.size());
 	return true;
 }
 

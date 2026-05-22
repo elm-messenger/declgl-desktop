@@ -4,6 +4,8 @@
 
 #include <cstdio>
 
+#include "log/log.h"
+
 namespace declgl
 {
 
@@ -39,9 +41,9 @@ bool FboPool::create_fbo(Fbo &out, int width, int height)
 	out.height = height;
 
 	if (status != GL_FRAMEBUFFER_COMPLETE) {
-		std::fprintf(
-			stderr,
-			"[declgl/fbo] incomplete framebuffer (status=0x%x)\n",
+		declgl::log::error(
+			"declgl/fbo",
+			"incomplete framebuffer (status=0x%x)",
 			status);
 		return false;
 	}
@@ -106,12 +108,12 @@ int FboPool::acquire()
 	}
 	static bool warned = false;
 	if (!warned) {
-		std::fprintf(stderr,
-			     "[declgl/fbo] pool exhausted (size=%d). Increase "
-			     "StartRegl.fbo_num. This warning fires once per "
-			     "process; subsequent failures are silent and the "
-			     "affected subtree drops.\n",
-			     static_cast<int>(fbos_.size()));
+		declgl::log::warn("declgl/fbo",
+				  "pool exhausted (size=%d). Increase "
+				  "StartRegl.fbo_num. This warning fires once per "
+				  "process; subsequent failures are silent and the "
+				  "affected subtree drops.",
+				  static_cast<int>(fbos_.size()));
 		warned = true;
 	}
 	return -1;

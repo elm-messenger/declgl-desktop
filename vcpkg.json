@@ -6,6 +6,7 @@
     "protobuf",
     "sdl3",
     "glm",
-    "nlohmann-json"
+    "nlohmann-json",
+    "quill"
   ]
 }

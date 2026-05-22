@@ -44,6 +44,7 @@
 #include <string>
 
 #include "engine/engine.h"
+#include "log/log.h"
 #include "transport_backend.pb.h"
 #include "transport_render.pb.h"
 
@@ -82,10 +83,10 @@ struct Callbacks {
 		recv_audio_msg_pb =
 			caml_named_value("declgl_app_recv_audio_msg_pb");
 		if (!update || !event || !view) {
-			std::fprintf(
-				stderr,
-				"[declgl/bridge] missing required Callback.register: "
-				"update=%p event=%p view=%p\n",
+			declgl::log::error(
+				"declgl/bridge",
+				"missing required Callback.register: "
+				"update=%p event=%p view=%p",
 				(void *)update, (void *)event, (void *)view);
 			return false;
 		}
@@ -252,19 +253,20 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 
 			mlregl::transport::render::Renderable r;
 			if (r.ParseFromArray(data, static_cast<int>(len))) {
-				static int frame_log = 0;
-				if ((frame_log++ % 60) == 0) {
-					std::printf(
-						"[declgl/bridge] view: Renderable kind=%d (frame %d)\n",
-						static_cast<int>(r.kind_case()),
-						frame_log - 1);
-				}
+				// static int frame_log = 0;
+				// if ((frame_log++ % 60) == 0) {
+				// 	declgl::log::info(
+				// 		"declgl/bridge",
+				// 		"view: Renderable kind=%d (frame %d)",
+				// 		static_cast<int>(r.kind_case()),
+				// 		frame_log - 1);
+				// }
 				// Hand off to the engine for the actual draw calls.
 				engine()->render(r);
 			} else {
-				std::fprintf(
-					stderr,
-					"[declgl/bridge] view: parse failed (%zu B)\n",
+				declgl::log::error(
+					"declgl/bridge",
+					"view: parse failed (%zu B)",
 					len);
 			}
 		}
@@ -302,9 +304,9 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 void enter_run_loop()
 {
 	if (loop_running_flag()) {
-		std::fprintf(
-			stderr,
-			"[declgl/bridge] StartRegl while loop running; ignoring\n");
+		declgl::log::warn(
+			"declgl/bridge",
+			"StartRegl while loop running; ignoring");
 		return;
 	}
 
@@ -344,16 +346,16 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 					    cmd.start_regl())) {
 					need_loop = true;
 				} else {
-					std::fprintf(
-						stderr,
-						"[declgl/bridge] init_window_and_gl failed: %s\n",
+					declgl::log::error(
+						"declgl/bridge",
+						"init_window_and_gl failed: %s",
 						declgl::last_error());
 					return false;
 				}
 			} else {
-				std::fprintf(
-					stderr,
-					"[declgl/bridge] duplicate StartRegl ignored\n");
+				declgl::log::warn(
+					"declgl/bridge",
+					"duplicate StartRegl ignored");
 			}
 			break;
 
@@ -364,12 +366,13 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 			// log — there's no loop to stop.
 			if (loop_running_flag() || need_loop) {
 				quit_requested_flag() = true;
-				std::printf(
-					"[declgl/bridge] quit_regl: stopping run loop\n");
+				declgl::log::info(
+					"declgl/bridge",
+					"quit_regl: stopping run loop");
 			} else {
-				std::fprintf(
-					stderr,
-					"[declgl/bridge] quit_regl before StartRegl; ignoring\n");
+				declgl::log::warn(
+					"declgl/bridge",
+					"quit_regl before StartRegl; ignoring");
 			}
 			break;
 
@@ -380,9 +383,9 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 			// configuring before StartRegl is meaningless (no
 			// window, no loop), so we ignore it with a warning.
 			if (!loop_running_flag() && !need_loop) {
-				std::fprintf(
-					stderr,
-					"[declgl/bridge] config_regl before StartRegl; ignoring\n");
+				declgl::log::warn(
+					"declgl/bridge",
+					"config_regl before StartRegl; ignoring");
 				break;
 			}
 			const auto &cr = cmd.config_regl();
@@ -396,14 +399,16 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 				// fallback) when returning to auto.
 				if (ms > 0.0) {
 					SDL_GL_SetSwapInterval(0);
-					std::printf(
-						"[declgl/bridge] config_regl interval_ms=%g (manual pacing)\n",
+					declgl::log::info(
+						"declgl/bridge",
+						"config_regl interval_ms=%g (manual pacing)",
 						ms);
 				} else {
 					if (!SDL_GL_SetSwapInterval(-1))
 						SDL_GL_SetSwapInterval(1);
-					std::printf(
-						"[declgl/bridge] config_regl interval_ms=%g (vsync)\n",
+					declgl::log::info(
+						"declgl/bridge",
+						"config_regl interval_ms=%g (vsync)",
 						ms);
 				}
 				break;
@@ -411,32 +416,34 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 			case ReglConfig::kWindow: {
 				SDL_Window *w = engine()->sdl_window();
 				if (!w) {
-					std::fprintf(
-						stderr,
-						"[declgl/bridge] config_regl(window) but no window; ignoring\n");
+					declgl::log::warn(
+						"declgl/bridge",
+						"config_regl(window) but no window; ignoring");
 					break;
 				}
 				const auto &wc = cr.window();
 				if (wc.has_fullscreen()) {
 					SDL_SetWindowFullscreen(
 						w, wc.fullscreen());
-					std::printf(
-						"[declgl/bridge] config_regl window.fullscreen=%d\n",
+					declgl::log::info(
+						"declgl/bridge",
+						"config_regl window.fullscreen=%d",
 						wc.fullscreen() ? 1 : 0);
 				}
 				if (wc.has_resizable()) {
 					SDL_SetWindowResizable(
 						w, wc.resizable());
-					std::printf(
-						"[declgl/bridge] config_regl window.resizable=%d\n",
+					declgl::log::info(
+						"declgl/bridge",
+						"config_regl window.resizable=%d",
 						wc.resizable() ? 1 : 0);
 				}
 				break;
 			}
 			case ReglConfig::CONFIG_NOT_SET:
-				std::fprintf(
-					stderr,
-					"[declgl/bridge] config_regl with no payload; ignoring\n");
+				declgl::log::warn(
+					"declgl/bridge",
+					"config_regl with no payload; ignoring");
 				break;
 			}
 			break;
@@ -482,10 +489,10 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
 			const value *recv =
 				caml_named_value("declgl_app_recv_regl_cmd_pb");
 			if (!recv) {
-				std::fprintf(
-					stderr,
-					"[declgl/bridge] BackendEvent dropped: "
-					"callback 'declgl_app_recv_regl_cmd_pb' not registered\n");
+				declgl::log::error(
+					"declgl/bridge",
+					"BackendEvent dropped: "
+					"callback 'declgl_app_recv_regl_cmd_pb' not registered");
 				return;
 			}
 			CAMLparam0();
@@ -506,10 +513,10 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
 			const value *recv = caml_named_value(
 				"declgl_app_recv_audio_msg_pb");
 			if (!recv) {
-				std::fprintf(
-					stderr,
-					"[declgl/bridge] AudioBackendEvent dropped: "
-					"callback 'declgl_app_recv_audio_msg_pb' not registered\n");
+				declgl::log::error(
+					"declgl/bridge",
+					"AudioBackendEvent dropped: "
+					"callback 'declgl_app_recv_audio_msg_pb' not registered");
 				return;
 			}
 			CAMLparam0();
@@ -527,9 +534,9 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
 
 	mlregl::transport::backend::BackendCommandBatch batch;
 	if (!batch.ParseFromArray(p, static_cast<int>(n))) {
-		std::fprintf(
-			stderr,
-			"[declgl/bridge] BackendCommandBatch parse failed (%zu B)\n",
+		declgl::log::error(
+			"declgl/bridge",
+			"BackendCommandBatch parse failed (%zu B)",
 			n);
 		CAMLreturn(Val_unit);
 	}

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "gpu/fbo_pool.h"
+#include "log/log.h"
 #include "renderer/render_context.h"
 #include "resources/font.h"
 #include "resources/font_registry.h"
@@ -311,9 +312,9 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		// Once per missing program, not per frame.
 		static std::string last;
 		if (last != prog_name) {
-			std::fprintf(stderr,
-				     "[declgl/render] no program '%s'\n",
-				     prog_name.c_str());
+			declgl::log::error("declgl/render",
+					   "no program '%s'",
+					   prog_name.c_str());
 			last = prog_name;
 		}
 		return;
@@ -394,18 +395,18 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		// 1. Resolve and bind the texture.
 		const Value *tex_v = find_field(a, "texture");
 		if (!tex_v || tex_v->kind_case() != Value::kStringValue) {
-			std::fprintf(
-				stderr,
-				"[declgl/render] '%s': missing or non-string "
-				"`texture` field\n",
+			declgl::log::error(
+				"declgl/render",
+				"'%s': missing or non-string "
+				"`texture` field",
 				prog_name.c_str());
 			return;
 		}
 		if (!ctx.textures) {
-			std::fprintf(
-				stderr,
-				"[declgl/render] '%s': no TextureRegistry on "
-				"context; cannot resolve '%s'\n",
+			declgl::log::error(
+				"declgl/render",
+				"'%s': no TextureRegistry on "
+				"context; cannot resolve '%s'",
 				prog_name.c_str(),
 				tex_v->string_value().c_str());
 			return;
@@ -446,10 +447,10 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 			// `texture` and `textureCropped` source `position` from `pos`.
 			pos_buf = as_floats(find_field(a, "pos"));
 			if (pos_buf.size() < 8 || pos_buf.size() % 2 != 0) {
-				std::fprintf(
-					stderr,
-					"[declgl/render] '%s': `pos` must have at "
-					"least 4 vertices (got %zu floats)\n",
+				declgl::log::error(
+					"declgl/render",
+					"'%s': `pos` must have at "
+					"least 4 vertices (got %zu floats)",
 					prog_name.c_str(), pos_buf.size());
 				return;
 			}
@@ -466,10 +467,10 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 				texc_data = texc_storage.data();
 			} else {
 				if (texc_buf.size() < 8) {
-					std::fprintf(
-						stderr,
-						"[declgl/render] '%s': caller-supplied "
-						"`texc` must have 8 floats (got %zu)\n",
+					declgl::log::error(
+						"declgl/render",
+						"'%s': caller-supplied "
+						"`texc` must have 8 floats (got %zu)",
 						prog_name.c_str(),
 						texc_buf.size());
 					return;
@@ -558,10 +559,10 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 
 	if (!caller_positions.empty()) {
 		if (caller_positions.size() % 2 != 0) {
-			std::fprintf(
-				stderr,
-				"[declgl/render] '%s': malformed pos field "
-				"(%zu floats — not even)\n",
+			declgl::log::error(
+				"declgl/render",
+				"'%s': malformed pos field "
+				"(%zu floats — not even)",
 				prog_name.c_str(), caller_positions.size());
 			return;
 		}
@@ -589,10 +590,10 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 		// No geometry at all and no hardcoded fallback — nothing to draw.
 		static std::string last;
 		if (last != prog_name) {
-			std::fprintf(
-				stderr,
-				"[declgl/render] '%s': no `pos` field and no "
-				"hardcoded geometry; skipping\n",
+			declgl::log::warn(
+				"declgl/render",
+				"'%s': no `pos` field and no "
+				"hardcoded geometry; skipping",
 				prog_name.c_str());
 			last = prog_name;
 		}
@@ -622,10 +623,10 @@ void RenderableWalker::render_atomic(const AtomicRenderable &a,
 
 	const GLint pos_loc = prog->attribute_location("position");
 	if (pos_loc < 0) {
-		std::fprintf(stderr,
-			     "[declgl/render] '%s': vertex shader has no "
-			     "'position' attribute\n",
-			     prog_name.c_str());
+		declgl::log::error("declgl/render",
+				   "'%s': vertex shader has no "
+				   "'position' attribute",
+				   prog_name.c_str());
 	} else {
 		glEnableVertexAttribArray(static_cast<GLuint>(pos_loc));
 		glVertexAttribPointer(static_cast<GLuint>(pos_loc), 2, GL_FLOAT,
@@ -1047,9 +1048,9 @@ void RenderableWalker::render_textbox(const AtomicRenderable &a,
 	if (!prog) {
 		static bool warned = false;
 		if (!warned) {
-			std::fprintf(
-				stderr,
-				"[declgl/text] no 'textbox' program registered\n");
+			declgl::log::error(
+				"declgl/text",
+				"no 'textbox' program registered");
 			warned = true;
 		}
 		return;
@@ -1096,10 +1097,10 @@ void RenderableWalker::render_textbox(const AtomicRenderable &a,
 		} else if (atlas_key != fe->texture_name) {
 			static std::string last;
 			if (last != name) {
-				std::fprintf(
-					stderr,
-					"[declgl/text] textbox '%s' mixes fonts with "
-					"different atlases ('%s' vs '%s'); using first\n",
+				declgl::log::error(
+					"declgl/text",
+					"textbox '%s' mixes fonts with "
+					"different atlases ('%s' vs '%s'); using first",
 					name.c_str(), atlas_key.c_str(),
 					fe->texture_name.c_str());
 				last = name;

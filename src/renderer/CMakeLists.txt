@@ -14,5 +14,6 @@ target_link_libraries(declgl_renderer
         declgl_proto
         declgl_gpu
         declgl_resources
+        declgl_log
         glad
 )

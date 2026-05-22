@@ -6,6 +6,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "log/log.h"
+
 namespace declgl
 {
 
@@ -128,10 +130,10 @@ bool Font::parse(const char *bytes, std::size_t size)
 		} else {
 			space_advance_ = 8; // arbitrary positive value
 		}
-		std::fprintf(stderr,
-			     "[declgl/font] no space glyph in atlas; "
-			     "falling back to xadvance=%d\n",
-			     space_advance_);
+		declgl::log::warn("declgl/font",
+				  "no space glyph in atlas; "
+				  "falling back to xadvance=%d",
+				  space_advance_);
 	}
 
 	// ---- kernings (optional) ----

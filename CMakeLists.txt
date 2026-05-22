@@ -47,6 +47,7 @@ endif()
 find_package(glm       CONFIG REQUIRED)
 find_package(Protobuf  CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(quill     CONFIG REQUIRED)
 
 find_package(SDL3      CONFIG REQUIRED)
 
@@ -64,6 +65,7 @@ add_subdirectory(third_party/stb)
 # ----------------------------------------------------------------------------
 add_subdirectory(src/proto_gen)
 add_subdirectory(shaders)
+add_subdirectory(src/log)
 add_subdirectory(src/gpu)
 add_subdirectory(src/resources)
 add_subdirectory(src/audio)
@@ -94,6 +96,7 @@ add_library(declgl STATIC
     $<TARGET_OBJECTS:declgl_audio>
     $<TARGET_OBJECTS:declgl_shaders>
     $<TARGET_OBJECTS:declgl_proto>
+    $<TARGET_OBJECTS:declgl_log>
     $<TARGET_OBJECTS:glad>
     $<TARGET_OBJECTS:stb_image>
     $<TARGET_OBJECTS:stb_vorbis>
