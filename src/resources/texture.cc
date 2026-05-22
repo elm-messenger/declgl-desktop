@@ -138,10 +138,8 @@ bool Texture::upload_rgba8(int width, int height, const uint8_t *pixels,
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
-		declgl::log::error(
-			"declgl/texture",
-			"glTexImage2D error 0x%x for %dx%d",
-			err, width, height);
+		DECLGL_LOG_ERROR("glTexImage2D error 0x{:x} for {}x{}", err,
+				 width, height);
 		glDeleteTextures(1, &tex);
 		return false;
 	}

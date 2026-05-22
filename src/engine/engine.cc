@@ -246,27 +246,23 @@ bool Engine::init_window_and_gl(
 		return false;
 	}
 
-	declgl::log::info("declgl",
-			  "GL %d.%d  vendor=%s  renderer=%s  glsl=%s",
-			  GLAD_VERSION_MAJOR(gl_version),
-			  GLAD_VERSION_MINOR(gl_version),
-			  reinterpret_cast<const char *>(glGetString(GL_VENDOR)),
-			  reinterpret_cast<const char *>(glGetString(GL_RENDERER)),
-			  reinterpret_cast<const char *>(
-				  glGetString(GL_SHADING_LANGUAGE_VERSION)));
+	DECLGL_LOG_INFO(
+		"GL {}.{}  vendor={}  renderer={}  glsl={}",
+		GLAD_VERSION_MAJOR(gl_version), GLAD_VERSION_MINOR(gl_version),
+		reinterpret_cast<const char *>(glGetString(GL_VENDOR)),
+		reinterpret_cast<const char *>(glGetString(GL_RENDERER)),
+		reinterpret_cast<const char *>(
+			glGetString(GL_SHADING_LANGUAGE_VERSION)));
 
 	if (start.has_builtin_programs()) {
-		declgl::log::info(
-			"declgl",
-			"start: virt=%gx%g fbo_num=%u builtins=%d",
-			start.virt_width(), start.virt_height(),
-			start.fbo_num(),
-			start.builtin_programs().values_size());
+		DECLGL_LOG_INFO("start: virt={}x{} fbo_num={} builtins={}",
+				start.virt_width(), start.virt_height(),
+				start.fbo_num(),
+				start.builtin_programs().values_size());
 	} else {
-		declgl::log::info("declgl",
-				  "start: virt=%gx%g fbo_num=%u",
-				  start.virt_width(), start.virt_height(),
-				  start.fbo_num());
+		DECLGL_LOG_INFO("start: virt={}x{} fbo_num={}",
+				start.virt_width(), start.virt_height(),
+				start.fbo_num());
 	}
 
 	// M3.B: spin up the program registry, render context and walker.
@@ -427,19 +423,11 @@ void Engine::dispatch_backend_command(
 		}
 
 		{
-			std::string msg =
-				"load_texture name=" + lt.name() +
-				" url=" + lt.url() + " mag=" +
-				describe_mag(mag_opt) + " min=" +
-				describe_min(min_opt);
-			if (crop.width > 0 && crop.height > 0) {
-				char crop_buf[64];
-				std::snprintf(crop_buf, sizeof(crop_buf),
-					      " crop=(%d,%d,%dx%d)", crop.x,
-					      crop.y, crop.width, crop.height);
-				msg += crop_buf;
-			}
-			declgl::log::info("declgl", "%s", msg.c_str());
+			DECLGL_LOG_INFO(
+				"load_texture name={} url={} mag={} min={}, crop=({},{},{}x{}, premultiply={})",
+				lt.name(), lt.url(), describe_mag(mag_opt),
+				describe_min(min_opt), crop.x, crop.y,
+				crop.width, crop.height, premultiply);
 		}
 
 		// Hand the decode off to the worker thread. The GL-side
@@ -468,10 +456,8 @@ void Engine::dispatch_backend_command(
 	}
 	case BackendCommand::kLoadFont: {
 		const auto &lf = cmd.load_font();
-		declgl::log::info("declgl",
-				  "load_font name=%s image=%s json=%s",
-				  lf.name().c_str(), lf.image_url().c_str(),
-				  lf.json_url().c_str());
+		DECLGL_LOG_INFO("load_font name={} image={} json={}", lf.name(),
+				lf.image_url(), lf.json_url());
 
 		// Off-thread: read+parse JSON, decode atlas PNG. The GL-
 		// side glTexImage2D + Font/Texture registration + event
@@ -500,8 +486,7 @@ void Engine::dispatch_backend_command(
 		break;
 	case BackendCommand::kCreateProgram: {
 		const auto &cp = cmd.create_program();
-		declgl::log::info("declgl", "create_program name=%s",
-				  cp.name().c_str());
+		DECLGL_LOG_INFO("create_program name={}", cp.name());
 		if (programs_ && cp.has_program()) {
 			programs_->register_program(cp.name(),
 						    cp.program().vert(),
@@ -511,8 +496,7 @@ void Engine::dispatch_backend_command(
 	}
 	case BackendCommand::kLoadAudio: {
 		const auto &la = cmd.load_audio();
-		declgl::log::info("declgl", "load_audio url=%s",
-				  la.audio_url().c_str());
+		DECLGL_LOG_INFO("load_audio url={}", la.audio_url());
 
 		if (!audio_) {
 			audio_ = std::make_unique<AudioEngine>();
@@ -560,8 +544,7 @@ void Engine::dispatch_backend_command(
 		// will ever ship for [name]. The OCaml side observes
 		// exactly the unload it asked for.
 		const auto &ut = cmd.unload_texture();
-		declgl::log::info("declgl", "unload_texture name=%s",
-				  ut.name().c_str());
+		DECLGL_LOG_INFO("unload_texture name={}", ut.name());
 		if (loader_) {
 			loader_->cancel_pending(AssetKind::Texture, ut.name());
 		}
@@ -586,8 +569,7 @@ void Engine::dispatch_backend_command(
 		// start sharing atlases this becomes a footgun. Mark this
 		// for follow-up if/when atlas sharing actually shows up.
 		const auto &uf = cmd.unload_font();
-		declgl::log::info("declgl", "unload_font name=%s",
-				  uf.name().c_str());
+		DECLGL_LOG_INFO("unload_font name={}", uf.name());
 		if (loader_) {
 			loader_->cancel_pending(AssetKind::Font, uf.name());
 		}
@@ -605,8 +587,7 @@ void Engine::dispatch_backend_command(
 	}
 	case BackendCommand::kUnloadAudio: {
 		const auto &ua = cmd.unload_audio();
-		declgl::log::info("declgl", "unload_audio url=%s",
-				  ua.audio_url().c_str());
+		DECLGL_LOG_INFO("unload_audio url={}", ua.audio_url());
 		if (loader_) {
 			loader_->cancel_pending(AssetKind::Audio,
 						ua.audio_url());
@@ -625,7 +606,7 @@ void Engine::dispatch_backend_command(
 		break;
 	case BackendCommand::KIND_NOT_SET:
 	default:
-		declgl::log::error("declgl", "unset command");
+		DECLGL_LOG_ERROR("unset command");
 		break;
 	}
 }
@@ -681,8 +662,7 @@ void Engine::ship_event(const mlregl::transport::backend::BackendEvent &ev)
 		// setups don't go unnoticed.
 		static bool warned = false;
 		if (!warned) {
-			declgl::log::warn(
-				"declgl",
+			DECLGL_LOG_WARN(
 				"ship_event: no EventSink registered "
 				"(events will be dropped); is the bridge wired up?");
 			warned = true;
@@ -691,8 +671,7 @@ void Engine::ship_event(const mlregl::transport::backend::BackendEvent &ev)
 	}
 	std::string buf;
 	if (!ev.SerializeToString(&buf)) {
-		declgl::log::error(
-			"declgl",
+		DECLGL_LOG_ERROR(
 			"ship_event: BackendEvent::SerializeToString failed");
 		return;
 	}
@@ -726,12 +705,9 @@ void Engine::drain_ready_assets(std::size_t max_items)
 			}
 			if (r.audio_error != AudioDecodeError::None ||
 			    !r.audio.ok()) {
-				declgl::log::error(
-					"declgl",
-					"audio load '%s' failed: %s",
-					r.name.c_str(),
-					r.error.empty() ? "decode" :
-							  r.error.c_str());
+				DECLGL_LOG_ERROR(
+					"audio load '{}' failed: {}", r.name,
+					r.error.empty() ? "decode" : r.error);
 				audio_->emit_load_failed(
 					r.image_url,
 					r.audio_error !=
@@ -747,11 +723,9 @@ void Engine::drain_ready_assets(std::size_t max_items)
 
 		// ---- failure path (shared between texture / font) ----
 		if (!r.error.empty() || !r.image.ok()) {
-			declgl::log::error("declgl",
-					   "async load '%s' failed: %s",
-					   r.name.c_str(),
-					   r.error.empty() ? "decode/parse" :
-							     r.error.c_str());
+			DECLGL_LOG_ERROR("async load '{}' failed: {}", r.name,
+					 r.error.empty() ? "decode/parse" :
+							   r.error);
 			BackendEvent ev;
 			if (r.kind == AssetKind::Texture) {
 				ev.mutable_texture_loadfail()->set_name(r.name);
@@ -784,10 +758,9 @@ void Engine::drain_ready_assets(std::size_t max_items)
 					       to_filter_mag(mag_opt),
 					       gen_mipmaps,
 					       /*premultiply_alpha=*/false)) {
-				declgl::log::error(
-					"declgl",
-					"async load '%s': upload failed",
-					r.name.c_str());
+				DECLGL_LOG_ERROR(
+					"async load '{}': upload failed",
+					r.name);
 				BackendEvent ev;
 				ev.mutable_texture_loadfail()->set_name(r.name);
 				ship_event(ev);
@@ -818,10 +791,9 @@ void Engine::drain_ready_assets(std::size_t max_items)
 			    TextureFilter::Linear, TextureFilter::Linear,
 			    /*generate_mipmaps=*/false,
 			    /*premultiply_alpha=*/false)) {
-			declgl::log::error(
-				"declgl",
-				"async load '%s': font atlas upload failed",
-				r.name.c_str());
+			DECLGL_LOG_ERROR(
+				"async load '{}': font atlas upload failed",
+				r.name);
 			BackendEvent ev;
 			ev.mutable_font_loadfail()->set_name(r.name);
 			ship_event(ev);
@@ -829,13 +801,13 @@ void Engine::drain_ready_assets(std::size_t max_items)
 		}
 		textures_->register_texture(r.image_url, std::move(tex));
 
-		declgl::log::info("declgl/font",
-				  "'%s': %d glyphs, %d kernings, "
-				  "%dx%d atlas, lineHeight=%d base=%d range=%.1f",
-				  r.name.c_str(), r.font->glyph_count(),
-				  r.font->kerning_count(), r.font->scaleW(),
-				  r.font->scaleH(), r.font->lineHeight(),
-				  r.font->base(), r.font->distanceRange());
+		DECLGL_LOG_INFO(
+			"'{}': {} glyphs, {} kernings, "
+			"{}x{} atlas, lineHeight={} base={} range={:.1f}",
+			r.name, r.font->glyph_count(), r.font->kerning_count(),
+			r.font->scaleW(), r.font->scaleH(),
+			r.font->lineHeight(), r.font->base(),
+			r.font->distanceRange());
 		fonts_->register_font(r.name, std::move(r.font), r.image_url);
 
 		BackendEvent ev;

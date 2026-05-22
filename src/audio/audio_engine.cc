@@ -61,17 +61,15 @@ void ship(AudioEventSink &sink,
 		// log once so the misconfig is visible.
 		static bool warned = false;
 		if (!warned) {
-			declgl::log::warn("declgl/audio",
-					  "AudioBackendEvent dropped: "
-					  "no event_sink registered");
+			DECLGL_LOG_WARN(
+				"AudioBackendEvent dropped: no event_sink registered");
 			warned = true;
 		}
 		return;
 	}
 	std::string buf;
 	if (!ev.SerializeToString(&buf)) {
-		declgl::log::error("declgl/audio",
-				   "AudioBackendEvent serialize failed");
+		DECLGL_LOG_ERROR("AudioBackendEvent serialize failed");
 		return;
 	}
 	sink(reinterpret_cast<const uint8_t *>(buf.data()), buf.size());
@@ -80,8 +78,7 @@ void ship(AudioEventSink &sink,
 // audio.js's [interpolate], slightly cleaner: linear blend between
 // the two breakpoints surrounding [t]. Caller guarantees
 // [a_t < t <= b_t]; degenerate ranges (b_t == a_t) collapse to b.
-inline float lerp_volume(double a_t, float a_v, double b_t, float b_v,
-			 double t)
+inline float lerp_volume(double a_t, float a_v, double b_t, float b_v, double t)
 {
 	const double span = b_t - a_t;
 	if (!(span > 0.0))
@@ -126,9 +123,7 @@ bool AudioEngine::ensure_open()
 	// guard with SDL_InitSubSystem so this works whether the engine
 	// was inited yet or not.
 	if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-		declgl::log::warn("declgl/audio",
-				  "SDL_InitSubSystem(AUDIO): %s",
-				  SDL_GetError());
+		DECLGL_LOG_WARN("SDL_InitSubSystem(AUDIO): {}", SDL_GetError());
 		return false;
 	}
 
@@ -143,9 +138,8 @@ bool AudioEngine::ensure_open()
 	stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
 					    &want, &audio_callback_thunk, this);
 	if (!stream_) {
-		declgl::log::warn("declgl/audio",
-				  "SDL_OpenAudioDeviceStream: %s",
-				  SDL_GetError());
+		DECLGL_LOG_WARN("SDL_OpenAudioDeviceStream: {}",
+				SDL_GetError());
 		return false;
 	}
 
@@ -155,22 +149,18 @@ bool AudioEngine::ensure_open()
 	SDL_AudioSpec src_spec{};
 	SDL_AudioSpec dst_spec{};
 	if (!SDL_GetAudioStreamFormat(stream_, &src_spec, &dst_spec)) {
-		declgl::log::warn("declgl/audio",
-				  "SDL_GetAudioStreamFormat: %s",
-				  SDL_GetError());
+		DECLGL_LOG_WARN("SDL_GetAudioStreamFormat: {}", SDL_GetError());
 	}
 	device_spec_ = src_spec; // input side — what we feed in
 	device_sample_rate_ = src_spec.freq > 0 ?
 				      static_cast<uint32_t>(src_spec.freq) :
 				      48000;
 
-	declgl::log::info(
-		"declgl/audio",
-		"device opened: src %d Hz x %d ch (we feed %s) "
-		"-> dst %d Hz x %d ch",
-		src_spec.freq, src_spec.channels,
-		src_spec.format == SDL_AUDIO_F32 ? "f32" : "?",
-		dst_spec.freq, dst_spec.channels);
+	DECLGL_LOG_INFO("device opened: src {} Hz x {} ch (we feed {}) "
+			"-> dst {} Hz x {} ch",
+			src_spec.freq, src_spec.channels,
+			src_spec.format == SDL_AUDIO_F32 ? "f32" : "?",
+			dst_spec.freq, dst_spec.channels);
 
 	// SDL streams are paused at creation; resume so the callback fires.
 	SDL_ResumeAudioStreamDevice(stream_);
@@ -185,14 +175,11 @@ bool AudioEngine::ensure_open()
 	return true;
 }
 
-int32_t AudioEngine::register_buffer(std::string audio_url,
-				     DecodedAudio buffer)
+int32_t AudioEngine::register_buffer(std::string audio_url, DecodedAudio buffer)
 {
 	if (!buffer.ok()) {
-		declgl::log::error(
-			"declgl/audio",
-			"register_buffer: empty buffer for '%s'",
-			audio_url.c_str());
+		DECLGL_LOG_ERROR("register_buffer: empty buffer for '{}'",
+				 audio_url);
 		return -1;
 	}
 
@@ -274,8 +261,7 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 	using namespace mlregl::transport::audio;
 	AudioCommandBatch batch;
 	if (!batch.ParseFromArray(bytes, static_cast<int>(len))) {
-		declgl::log::error("declgl/audio",
-				   "AudioCommandBatch parse failed");
+		DECLGL_LOG_ERROR("AudioCommandBatch parse failed");
 		return false;
 	}
 
@@ -302,9 +288,8 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 			c.node_group_id = s.node_group_id();
 			const uint32_t bid = s.buffer_id();
 			if (bid >= buffers_.size() || !buffers_[bid]) {
-				declgl::log::error(
-					"declgl/audio",
-					"start_sound: unknown buffer_id=%u (group=%u)",
+				DECLGL_LOG_ERROR(
+					"start_sound: unknown buffer_id={} (group={})",
 					bid, c.node_group_id);
 				continue;
 			}
@@ -326,9 +311,9 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 				std::vector<TimelinePoint> pts;
 				pts.reserve(tl.points_size());
 				for (const auto &p : tl.points()) {
-					pts.push_back(
-						{ p.time(),
-						  static_cast<float>(p.volume()) });
+					pts.push_back({ p.time(),
+							static_cast<float>(
+								p.volume()) });
 				}
 				c.timelines.push_back(std::move(pts));
 			}
@@ -341,7 +326,8 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 		case AudioAction::kSetVolume:
 			c.kind = CmdKind::SetVolume;
 			c.node_group_id = act.set_volume().node_group_id();
-			c.volume = static_cast<float>(act.set_volume().volume());
+			c.volume =
+				static_cast<float>(act.set_volume().volume());
 			break;
 		case AudioAction::kSetVolumeAt: {
 			c.kind = CmdKind::SetVolumeAt;
@@ -352,9 +338,9 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 				std::vector<TimelinePoint> pts;
 				pts.reserve(tl.points_size());
 				for (const auto &p : tl.points()) {
-					pts.push_back(
-						{ p.time(),
-						  static_cast<float>(p.volume()) });
+					pts.push_back({ p.time(),
+							static_cast<float>(
+								p.volume()) });
 				}
 				c.timelines.push_back(std::move(pts));
 			}
@@ -362,12 +348,12 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 		}
 		case AudioAction::kSetLoopConfig:
 			c.kind = CmdKind::SetLoopConfig;
-			c.node_group_id =
-				act.set_loop_config().node_group_id();
+			c.node_group_id = act.set_loop_config().node_group_id();
 			if (act.set_loop_config().has_loop()) {
 				c.loop_enabled = true;
-				c.loop_start_ms =
-					act.set_loop_config().loop().loop_start();
+				c.loop_start_ms = act.set_loop_config()
+							  .loop()
+							  .loop_start();
 				c.loop_end_ms =
 					act.set_loop_config().loop().loop_end();
 			} else {
@@ -448,7 +434,8 @@ void AudioEngine::audio_callback(SDL_AudioStream *stream, int additional_amount)
 			break;
 
 		std::memset(chunk, 0,
-			    static_cast<size_t>(chunk_frames) * bytes_per_frame);
+			    static_cast<size_t>(chunk_frames) *
+				    bytes_per_frame);
 
 		// Mix every live voice into the chunk.
 		for (auto it = voices_.begin(); it != voices_.end();) {
@@ -503,10 +490,8 @@ void AudioEngine::apply_cmd(Cmd &cmd)
 		// should "have started", in OCaml-clock ms; [start_at]
 		// is the offset into the source. Mirroring audio.js's
 		// [playSound] start logic but mapped to a frame index.
-		const double sr =
-			static_cast<double>(device_sample_rate_);
-		const double start_at_frames =
-			cmd.start_at_ms * sr / 1000.0;
+		const double sr = static_cast<double>(device_sample_rate_);
+		const double start_at_frames = cmd.start_at_ms * sr / 1000.0;
 		if (cmd.start_time_ms >= cmd.now_ms) {
 			// Future start: cursor begins at start_at; the
 			// voice will silently advance until start_time.
@@ -519,11 +504,11 @@ void AudioEngine::apply_cmd(Cmd &cmd)
 			// offset: we won't render until
 			// frames_produced_ >= start_frame.
 			v.anchor_ms = cmd.start_time_ms;
-			v.anchor_frame = cmd.now_frame +
-					 static_cast<uint64_t>(
-						 (cmd.start_time_ms -
-						  cmd.now_ms) *
-						 sr / 1000.0);
+			v.anchor_frame =
+				cmd.now_frame +
+				static_cast<uint64_t>(
+					(cmd.start_time_ms - cmd.now_ms) * sr /
+					1000.0);
 		} else {
 			// Past start: skip ahead in the source by
 			// (now - start_time) seconds + start_at.
@@ -534,12 +519,9 @@ void AudioEngine::apply_cmd(Cmd &cmd)
 
 		if (cmd.loop_enabled) {
 			v.loop_enabled = true;
-			v.loop_start_frames =
-				cmd.loop_start_ms * sr / 1000.0;
-			v.loop_end_frames =
-				cmd.loop_end_ms * sr / 1000.0;
-			if (v.loop_end_frames <=
-			    v.loop_start_frames) {
+			v.loop_start_frames = cmd.loop_start_ms * sr / 1000.0;
+			v.loop_end_frames = cmd.loop_end_ms * sr / 1000.0;
+			if (v.loop_end_frames <= v.loop_start_frames) {
 				v.loop_enabled = false; // sanity
 			}
 		}
@@ -572,8 +554,7 @@ void AudioEngine::apply_cmd(Cmd &cmd)
 		auto it = voices_.find(cmd.node_group_id);
 		if (it == voices_.end())
 			break;
-		const double sr =
-			static_cast<double>(device_sample_rate_);
+		const double sr = static_cast<double>(device_sample_rate_);
 		if (cmd.loop_enabled) {
 			it->second.loop_enabled = true;
 			it->second.loop_start_frames =
@@ -633,10 +614,10 @@ float AudioEngine::timeline_gain_at(const Voice &v, double frame) const
 		// on the fly. Cheap (a couple muls + adds per point), and
 		// keeps voices migration-friendly if we ever want to
 		// re-anchor.
-		const double f0 = ms_to_frame(tl.front().time_ms,
-					      v.anchor_ms, v.anchor_frame);
-		const double fN = ms_to_frame(tl.back().time_ms,
-					      v.anchor_ms, v.anchor_frame);
+		const double f0 = ms_to_frame(tl.front().time_ms, v.anchor_ms,
+					      v.anchor_frame);
+		const double fN = ms_to_frame(tl.back().time_ms, v.anchor_ms,
+					      v.anchor_frame);
 		if (frame <= f0) {
 			prod *= tl.front().volume;
 			continue;
@@ -648,11 +629,9 @@ float AudioEngine::timeline_gain_at(const Voice &v, double frame) const
 		// Linear search; timelines are short (a handful of
 		// breakpoints in practice) so this is fine.
 		for (size_t i = 1; i < tl.size(); ++i) {
-			const double a = ms_to_frame(tl[i - 1].time_ms,
-						     v.anchor_ms,
-						     v.anchor_frame);
-			const double b = ms_to_frame(tl[i].time_ms,
-						     v.anchor_ms,
+			const double a = ms_to_frame(
+				tl[i - 1].time_ms, v.anchor_ms, v.anchor_frame);
+			const double b = ms_to_frame(tl[i].time_ms, v.anchor_ms,
 						     v.anchor_frame);
 			if (frame <= b) {
 				prod *= lerp_volume(a, tl[i - 1].volume, b,
@@ -711,10 +690,9 @@ void AudioEngine::mix_voice(Voice &v, float *out, uint32_t out_frames)
 		uint32_t i0 = static_cast<uint32_t>(cur);
 		uint32_t i1 = i0 + 1;
 		if (i1 >= src_frames) {
-			i1 = v.loop_enabled ?
-				     static_cast<uint32_t>(
-					     v.loop_start_frames) :
-				     i0;
+			i1 = v.loop_enabled ? static_cast<uint32_t>(
+						      v.loop_start_frames) :
+					      i0;
 		}
 		const double frac = cur - static_cast<double>(i0);
 
@@ -734,9 +712,8 @@ void AudioEngine::mix_voice(Voice &v, float *out, uint32_t out_frames)
 			l = r = static_cast<float>(s0 + (s1 - s0) * frac);
 		}
 
-		const double abs_frame =
-			static_cast<double>(frames_produced_) +
-			static_cast<double>(i);
+		const double abs_frame = static_cast<double>(frames_produced_) +
+					 static_cast<double>(i);
 		const float g = v.volume * timeline_gain_at(v, abs_frame);
 
 		out[i * 2 + 0] += l * g;

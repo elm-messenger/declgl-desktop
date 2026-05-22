@@ -36,15 +36,11 @@ bool ProgramRegistry::register_builtin_alias(std::string_view name,
 	const auto frag =
 		builtin_shader_source(frag_source_name, ShaderKind::FRAG);
 	if (vert.empty() || frag.empty()) {
-		declgl::log::error(
-			"declgl/registry",
-			"builtin '%.*s' source missing "
-			"(vert from '%.*s'=%zu bytes, frag from '%.*s'=%zu bytes)",
-			static_cast<int>(name.size()), name.data(),
-			static_cast<int>(vert_source_name.size()),
-			vert_source_name.data(), vert.size(),
-			static_cast<int>(frag_source_name.size()),
-			frag_source_name.data(), frag.size());
+		DECLGL_LOG_ERROR(
+			"builtin '{}' source missing "
+			"(vert from '{}'={} bytes, frag from '{}'={} bytes)",
+			name, vert_source_name, vert.size(), frag_source_name,
+			frag.size());
 		return false;
 	}
 	return register_program(name, vert, frag);

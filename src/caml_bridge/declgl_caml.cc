@@ -83,11 +83,10 @@ struct Callbacks {
 		recv_audio_msg_pb =
 			caml_named_value("declgl_app_recv_audio_msg_pb");
 		if (!update || !event || !view) {
-			declgl::log::error(
-				"declgl/bridge",
-				"missing required Callback.register: "
-				"update=%p event=%p view=%p",
-				(void *)update, (void *)event, (void *)view);
+			DECLGL_LOG_ERROR("missing required Callback.register: "
+					 "update={} event={} view={}",
+					 (void *)update, (void *)event,
+					 (void *)view);
 			return false;
 		}
 		return true;
@@ -255,7 +254,7 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 			if (r.ParseFromArray(data, static_cast<int>(len))) {
 				// static int frame_log = 0;
 				// if ((frame_log++ % 60) == 0) {
-				// 	declgl::log::info(
+				// 	DECLGL_LOG_INFO(
 				// 		"declgl/bridge",
 				// 		"view: Renderable kind=%d (frame %d)",
 				// 		static_cast<int>(r.kind_case()),
@@ -264,10 +263,8 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 				// Hand off to the engine for the actual draw calls.
 				engine()->render(r);
 			} else {
-				declgl::log::error(
-					"declgl/bridge",
-					"view: parse failed (%zu B)",
-					len);
+				DECLGL_LOG_ERROR("view: parse failed ({} B)",
+						 len);
 			}
 		}
 		CAMLdrop;
@@ -304,9 +301,7 @@ bool drive_one_frame(Callbacks &cb, SDL_Window *window, Uint64 start_ticks)
 void enter_run_loop()
 {
 	if (loop_running_flag()) {
-		declgl::log::warn(
-			"declgl/bridge",
-			"StartRegl while loop running; ignoring");
+		DECLGL_LOG_WARN("StartRegl while loop running; ignoring");
 		return;
 	}
 
@@ -346,16 +341,13 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 					    cmd.start_regl())) {
 					need_loop = true;
 				} else {
-					declgl::log::error(
-						"declgl/bridge",
-						"init_window_and_gl failed: %s",
+					DECLGL_LOG_ERROR(
+						"init_window_and_gl failed: {}",
 						declgl::last_error());
 					return false;
 				}
 			} else {
-				declgl::log::warn(
-					"declgl/bridge",
-					"duplicate StartRegl ignored");
+				DECLGL_LOG_WARN("duplicate StartRegl ignored");
 			}
 			break;
 
@@ -366,12 +358,9 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 			// log — there's no loop to stop.
 			if (loop_running_flag() || need_loop) {
 				quit_requested_flag() = true;
-				declgl::log::info(
-					"declgl/bridge",
-					"quit_regl: stopping run loop");
+				DECLGL_LOG_INFO("quit_regl: stopping run loop");
 			} else {
-				declgl::log::warn(
-					"declgl/bridge",
+				DECLGL_LOG_WARN(
 					"quit_regl before StartRegl; ignoring");
 			}
 			break;
@@ -383,8 +372,7 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 			// configuring before StartRegl is meaningless (no
 			// window, no loop), so we ignore it with a warning.
 			if (!loop_running_flag() && !need_loop) {
-				declgl::log::warn(
-					"declgl/bridge",
+				DECLGL_LOG_WARN(
 					"config_regl before StartRegl; ignoring");
 				break;
 			}
@@ -399,16 +387,14 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 				// fallback) when returning to auto.
 				if (ms > 0.0) {
 					SDL_GL_SetSwapInterval(0);
-					declgl::log::info(
-						"declgl/bridge",
-						"config_regl interval_ms=%g (manual pacing)",
+					DECLGL_LOG_INFO(
+						"config_regl interval_ms={} (manual pacing)",
 						ms);
 				} else {
 					if (!SDL_GL_SetSwapInterval(-1))
 						SDL_GL_SetSwapInterval(1);
-					declgl::log::info(
-						"declgl/bridge",
-						"config_regl interval_ms=%g (vsync)",
+					DECLGL_LOG_INFO(
+						"config_regl interval_ms={} (vsync)",
 						ms);
 				}
 				break;
@@ -416,8 +402,7 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 			case ReglConfig::kWindow: {
 				SDL_Window *w = engine()->sdl_window();
 				if (!w) {
-					declgl::log::warn(
-						"declgl/bridge",
+					DECLGL_LOG_WARN(
 						"config_regl(window) but no window; ignoring");
 					break;
 				}
@@ -425,24 +410,21 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 				if (wc.has_fullscreen()) {
 					SDL_SetWindowFullscreen(
 						w, wc.fullscreen());
-					declgl::log::info(
-						"declgl/bridge",
-						"config_regl window.fullscreen=%d",
+					DECLGL_LOG_INFO(
+						"config_regl window.fullscreen={}",
 						wc.fullscreen() ? 1 : 0);
 				}
 				if (wc.has_resizable()) {
-					SDL_SetWindowResizable(
-						w, wc.resizable());
-					declgl::log::info(
-						"declgl/bridge",
-						"config_regl window.resizable=%d",
+					SDL_SetWindowResizable(w,
+							       wc.resizable());
+					DECLGL_LOG_INFO(
+						"config_regl window.resizable={}",
 						wc.resizable() ? 1 : 0);
 				}
 				break;
 			}
 			case ReglConfig::CONFIG_NOT_SET:
-				declgl::log::warn(
-					"declgl/bridge",
+				DECLGL_LOG_WARN(
 					"config_regl with no payload; ignoring");
 				break;
 			}
@@ -489,8 +471,7 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
 			const value *recv =
 				caml_named_value("declgl_app_recv_regl_cmd_pb");
 			if (!recv) {
-				declgl::log::error(
-					"declgl/bridge",
+				DECLGL_LOG_ERROR(
 					"BackendEvent dropped: "
 					"callback 'declgl_app_recv_regl_cmd_pb' not registered");
 				return;
@@ -513,8 +494,7 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
 			const value *recv = caml_named_value(
 				"declgl_app_recv_audio_msg_pb");
 			if (!recv) {
-				declgl::log::error(
-					"declgl/bridge",
+				DECLGL_LOG_ERROR(
 					"AudioBackendEvent dropped: "
 					"callback 'declgl_app_recv_audio_msg_pb' not registered");
 				return;
@@ -534,10 +514,7 @@ extern "C" CAMLprim value declgl_ship_backend_cmd(value v_bytes)
 
 	mlregl::transport::backend::BackendCommandBatch batch;
 	if (!batch.ParseFromArray(p, static_cast<int>(n))) {
-		declgl::log::error(
-			"declgl/bridge",
-			"BackendCommandBatch parse failed (%zu B)",
-			n);
+		DECLGL_LOG_ERROR("BackendCommandBatch parse failed ({} B)", n);
 		CAMLreturn(Val_unit);
 	}
 
@@ -571,11 +548,10 @@ extern "C" CAMLprim value declgl_ship_audio_cmd(value v_bytes)
 	// driven on. If the run loop hasn't started yet we ship 0 — the
 	// AudioEngine handles that fine (it'll just queue commands
 	// against frame 0 of the playback timeline).
-	const double now_ms =
-		bridge_start_ticks() == 0 ?
-			0.0 :
-			static_cast<double>(SDL_GetTicks() -
-					    bridge_start_ticks());
+	const double now_ms = bridge_start_ticks() == 0 ?
+				      0.0 :
+				      static_cast<double>(SDL_GetTicks() -
+							  bridge_start_ticks());
 	engine()->exec_audio_cmd(p, n, now_ms);
 
 	CAMLreturn(Val_unit);

@@ -42,10 +42,9 @@ std::string lower_ext(const std::string &path)
 // the WAV and OGG paths so the resampling/upmix logic lives in one
 // place. Returns false on any SDL conversion error; [out] is left
 // in its default-constructed state in that case.
-bool convert_to_device(const SDL_AudioSpec &src_spec,
-                       const Uint8 *src_data, int src_len,
-                       uint32_t device_sample_rate, DecodedAudio &out,
-                       std::string &err_message)
+bool convert_to_device(const SDL_AudioSpec &src_spec, const Uint8 *src_data,
+		       int src_len, uint32_t device_sample_rate,
+		       DecodedAudio &out, std::string &err_message)
 {
 	SDL_AudioSpec dst_spec{};
 	dst_spec.format = SDL_AUDIO_F32;
@@ -82,7 +81,7 @@ bool convert_to_device(const SDL_AudioSpec &src_spec,
 }
 
 DecodedAudio decode_wav(const std::string &path, uint32_t device_sample_rate,
-                        AudioDecodeError &err, std::string &err_message)
+			AudioDecodeError &err, std::string &err_message)
 {
 	SDL_AudioSpec src_spec{};
 	Uint8 *src_data = nullptr;
@@ -107,7 +106,7 @@ DecodedAudio decode_wav(const std::string &path, uint32_t device_sample_rate,
 }
 
 DecodedAudio decode_ogg(const std::string &path, uint32_t device_sample_rate,
-                        AudioDecodeError &err, std::string &err_message)
+			AudioDecodeError &err, std::string &err_message)
 {
 	int channels = 0;
 	int sample_rate = 0;
@@ -138,10 +137,9 @@ DecodedAudio decode_ogg(const std::string &path, uint32_t device_sample_rate,
 	const int src_len = frames * channels * static_cast<int>(sizeof(short));
 
 	DecodedAudio out;
-	const bool ok = convert_to_device(src_spec,
-					  reinterpret_cast<Uint8 *>(interleaved),
-					  src_len, device_sample_rate, out,
-					  err_message);
+	const bool ok = convert_to_device(
+		src_spec, reinterpret_cast<Uint8 *>(interleaved), src_len,
+		device_sample_rate, out, err_message);
 	std::free(interleaved);
 	if (!ok) {
 		err = AudioDecodeError::DecodeFailure;
@@ -154,8 +152,8 @@ DecodedAudio decode_ogg(const std::string &path, uint32_t device_sample_rate,
 } // namespace
 
 DecodedAudio decode_audio_file(const std::string &path,
-                               uint32_t device_sample_rate,
-                               AudioDecodeError &err, std::string &err_message)
+			       uint32_t device_sample_rate,
+			       AudioDecodeError &err, std::string &err_message)
 {
 	err = AudioDecodeError::None;
 	err_message.clear();

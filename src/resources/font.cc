@@ -130,10 +130,9 @@ bool Font::parse(const char *bytes, std::size_t size)
 		} else {
 			space_advance_ = 8; // arbitrary positive value
 		}
-		declgl::log::warn("declgl/font",
-				  "no space glyph in atlas; "
-				  "falling back to xadvance=%d",
-				  space_advance_);
+		DECLGL_LOG_WARN("no space glyph in atlas; "
+				"falling back to xadvance={}",
+				space_advance_);
 	}
 
 	// ---- kernings (optional) ----

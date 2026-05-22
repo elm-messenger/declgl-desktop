@@ -55,9 +55,9 @@ struct DecodedAudio {
 // callers can surface the right variant without re-classifying.
 enum class AudioDecodeError {
 	None = 0,
-	IoFailure,        // file missing / unreadable
-	UnsupportedFormat,// extension or magic isn't WAV/OGG
-	DecodeFailure,    // parser rejected the bytes
+	IoFailure, // file missing / unreadable
+	UnsupportedFormat, // extension or magic isn't WAV/OGG
+	DecodeFailure, // parser rejected the bytes
 };
 
 // Decode [path] (WAV or OGG Vorbis) and resample to f32 stereo at
@@ -66,8 +66,7 @@ enum class AudioDecodeError {
 // short human-readable message is also written to [err_message] for
 // logging.
 DecodedAudio decode_audio_file(const std::string &path,
-                               uint32_t device_sample_rate,
-                               AudioDecodeError &err,
-                               std::string &err_message);
+			       uint32_t device_sample_rate,
+			       AudioDecodeError &err, std::string &err_message);
 
 } // namespace declgl

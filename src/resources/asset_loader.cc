@@ -193,9 +193,8 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 		// the decoder fails fast with a clear message.
 		AudioDecodeError err = AudioDecodeError::None;
 		std::string err_msg;
-		out.audio = decode_audio_file(job.image_url,
-					      job.audio_sample_rate, err,
-					      err_msg);
+		out.audio = decode_audio_file(
+			job.image_url, job.audio_sample_rate, err, err_msg);
 		if (!out.audio.ok()) {
 			out.audio_error = err;
 			out.error = err_msg.empty() ? "decode_audio_file" :

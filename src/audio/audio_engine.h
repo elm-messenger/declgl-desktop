@@ -181,8 +181,8 @@ class AudioEngine {
 		// ownership; audio thread drops on apply.
 		std::unique_ptr<Buffer> release;
 
-		double now_ms = 0.0;        // OCaml clock at issue time
-		uint64_t now_frame = 0;     // engine frame at issue time
+		double now_ms = 0.0; // OCaml clock at issue time
+		uint64_t now_frame = 0; // engine frame at issue time
 
 		// StartSound payload.
 		double start_time_ms = 0.0;

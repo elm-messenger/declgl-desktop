@@ -41,10 +41,8 @@ bool FboPool::create_fbo(Fbo &out, int width, int height)
 	out.height = height;
 
 	if (status != GL_FRAMEBUFFER_COMPLETE) {
-		declgl::log::error(
-			"declgl/fbo",
-			"incomplete framebuffer (status=0x%x)",
-			status);
+		DECLGL_LOG_ERROR("incomplete framebuffer (status=0x{:x})",
+				 status);
 		return false;
 	}
 	return true;
@@ -108,12 +106,12 @@ int FboPool::acquire()
 	}
 	static bool warned = false;
 	if (!warned) {
-		declgl::log::warn("declgl/fbo",
-				  "pool exhausted (size=%d). Increase "
-				  "StartRegl.fbo_num. This warning fires once per "
-				  "process; subsequent failures are silent and the "
-				  "affected subtree drops.",
-				  static_cast<int>(fbos_.size()));
+		DECLGL_LOG_WARN(
+			"pool exhausted (size={}). Increase "
+			"StartRegl.fbo_num. This warning fires once per "
+			"process; subsequent failures are silent and the "
+			"affected subtree drops.",
+			static_cast<int>(fbos_.size()));
 		warned = true;
 	}
 	return -1;
