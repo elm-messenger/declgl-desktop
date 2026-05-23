@@ -42,12 +42,33 @@
       "displayName": "Linux Release",
       "inherits": "linux-debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "win-debug",
+      "displayName": "Windows Debug (x64, clang-cl + lld-link)",
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_LINKER_TYPE": "LLD",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
+      }
+    },
+    {
+      "name": "win-release",
+      "displayName": "Windows Release (x64, clang-cl + lld-link)",
+      "inherits": "win-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }
   ],
   "buildPresets": [
     { "name": "mac-debug",    "configurePreset": "mac-debug"    },
     { "name": "mac-release",  "configurePreset": "mac-release"  },
     { "name": "linux-debug",  "configurePreset": "linux-debug"  },
-    { "name": "linux-release","configurePreset": "linux-release"}
+    { "name": "linux-release","configurePreset": "linux-release"},
+    { "name": "win-debug",    "configurePreset": "win-debug"    },
+    { "name": "win-release",  "configurePreset": "win-release"  }
   ]
 }
