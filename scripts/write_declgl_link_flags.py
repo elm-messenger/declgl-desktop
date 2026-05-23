@@ -118,6 +118,7 @@ def windows_system_libs() -> list[str]:
 def render_lines(
     vcpkg_lib: Path, build_dir: Path, os_name: str
 ) -> list[str]:
+    env = os.environ.copy()
     is_apple = os_name == "Darwin"
     is_windows = os_name == "Windows"
 
@@ -128,6 +129,8 @@ def render_lines(
 
 
     if is_windows:
+        if "DECLGL_WINDOWS" in env:
+            append_unique(flags, ["-subsystem windows"])
         append_unique(flags, ["-lasmrun"])
     
     slibs = pkg_config_libs(vcpkg_lib, "protobuf-lite", "SDL3")

@@ -88,6 +88,12 @@ $env:Path = "C:\msys64\mingw64\bin;$env:VCPKG_ROOT;$env:Path"
 
 Currently when installing `ocaml-protoc-plugin` on windows there is one small bug. You can use [this repo](https://github.com/linsyking/ocaml-protoc-plugin/tree/main) for now.
 
+#### GUI App
+
+By default the application will starts a console for displaying debugging information. If you need to remove that, set environment variable `$env:DECLGL_WINDOWS=1` and rebuild this project.
+
+However, you cannot do any `printf` in OCaml side, it will directly kills your app! Remember to clean all the printf in OCaml app before building.
+
 ## Building
 
 ```bash
