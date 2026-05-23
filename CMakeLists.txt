@@ -107,18 +107,6 @@ set_target_properties(declgl PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
-# OCaml's dune side hard-codes the archive name as `libdeclgl.a` via
-# (foreign_archives declgl). On MSVC/clang-cl the default would be
-# `declgl.lib`, so rename to match. The on-disk format is still COFF; only
-# the file name needs to be portable. ocamlfind/flexlink/lld-link handle a
-# COFF archive named `.a` without complaint.
-if(MSVC)
-    set_target_properties(declgl PROPERTIES
-        PREFIX "lib"
-        SUFFIX ".a"
-    )
-endif()
-
 # ----------------------------------------------------------------------------
 # Dune integration: emit two artefacts that the OCaml side ingests via
 # (foreign_archives ...) + (c_library_flags (:include ...)).

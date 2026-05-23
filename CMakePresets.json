@@ -45,20 +45,16 @@
     },
     {
       "name": "win-debug",
-      "displayName": "Windows Debug (x64, clang-cl + lld-link)",
+      "displayName": "Windows Debug (x64, MinGW GCC)",
       "inherits": "base",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_C_COMPILER": "clang-cl",
-        "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_LINKER_TYPE": "LLD",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {
       "name": "win-release",
-      "displayName": "Windows Release (x64, clang-cl + lld-link)",
+      "displayName": "Windows Release (x64, MinGW GCC)",
       "inherits": "win-debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     }

@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
+import shlex
 from pathlib import Path
 
 
@@ -22,25 +25,36 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def absl_link_flags_unix(vcpkg_lib: Path) -> list[str]:
-    flags: list[str] = []
-    for archive in sorted(vcpkg_lib.glob("libabsl_*.a")):
-        stem = archive.stem
-        if stem.startswith("lib"):
-            stem = stem[3:]
-        flags.append(f"-l{stem}")
-    return flags
+def pkg_config_libs(vcpkg_lib: Path, *packages: str) -> list[str]:
+    env = os.environ.copy()
+    pkg_config_path = str(vcpkg_lib / "pkgconfig")
+    existing = env.get("PKG_CONFIG_PATH")
+    env["PKG_CONFIG_PATH"] = (
+        pkg_config_path if not existing else os.pathsep.join([pkg_config_path, existing])
+    )
+    try:
+        output = subprocess.check_output(
+            ["pkg-config", "--libs", "--static", *packages],
+            encoding="utf-8",
+            env=env,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    # SDL's MinGW pkg-config file may include compiler-driver switches such as
+    # -mwindows. Dune c_library_flags are routed through FlexDLL, so keep this
+    # file to library names and library search paths.
+    return [
+        flag
+        for flag in shlex.split(output)
+        if flag.startswith(("-l", "-L"))
+    ]
 
-
-def absl_link_flags_msvc(vcpkg_lib: Path) -> list[str]:
-    # MSVC/clang-cl with vcpkg `x64-windows-static` produces `absl_*.lib`
-    # (no `lib` prefix). ocamlfind passes c_library_flags through the C
-    # driver; clang-cl accepts both `-lfoo` (resolves to `foo.lib`) and a
-    # bare `foo.lib`. We use `-l<stem>` for symmetry with the *nix paths.
-    flags: list[str] = []
-    for archive in sorted(vcpkg_lib.glob("absl_*.lib")):
-        flags.append(f"-l{archive.stem}")
-    return flags
+def append_unique(flags: list[str], more_flags: list[str]) -> None:
+    seen = set(flags)
+    for flag in more_flags:
+        if flag not in seen:
+            flags.append(flag)
+            seen.add(flag)
 
 
 def framework_flags() -> list[str]:
@@ -72,9 +86,9 @@ def framework_flags() -> list[str]:
 
 
 def windows_system_libs() -> list[str]:
-    # SDL3, abseil and protobuf reach into Win32 + DirectX. clang-cl picks
-    # these up from the Windows SDK on the default lib search path; we just
-    # have to name them.
+    # SDL3, abseil and protobuf reach into Win32 + DirectX. The Windows
+    # compiler driver picks these up from the default library search path; we
+    # just have to name them.
     libs = (
         "user32",
         "gdi32",
@@ -101,45 +115,34 @@ def windows_system_libs() -> list[str]:
     return [f"-l{name}" for name in libs]
 
 
-def render_lines(vcpkg_lib: Path, build_dir: Path, os_name: str) -> list[str]:
+def render_lines(
+    vcpkg_lib: Path, build_dir: Path, os_name: str
+) -> list[str]:
     is_apple = os_name == "Darwin"
     is_windows = os_name == "Windows"
 
-    lines = [
-        "(",
-        f"  -L{vcpkg_lib}",
-        f"  -L{build_dir}",
+    flags = [
+        f"-L{vcpkg_lib}",
+        f"-L{build_dir}",
     ]
 
-    if is_windows:
-        # Static vcpkg names: `libprotobuf-lite.lib`, `SDL3-static.lib`,
-        # `utf8_range.lib`, `utf8_validity.lib`. `-l` resolves to `<name>.lib`.
-        lines.extend(
-            [
-                "  -llibprotobuf-lite",
-                "  -lSDL3-static",
-                "  -lutf8_range",
-                "  -lutf8_validity",
-            ]
-        )
-        lines.extend(f"  {flag}" for flag in absl_link_flags_msvc(vcpkg_lib))
-        lines.extend(f"  {flag}" for flag in windows_system_libs())
-    else:
-        lines.extend(
-            [
-                "  -lprotobuf-lite",
-                "  -lSDL3",
-                "  -lutf8_range",
-                "  -lutf8_validity",
-            ]
-        )
-        lines.extend(f"  {flag}" for flag in absl_link_flags_unix(vcpkg_lib))
-        if is_apple:
-            lines.extend(f"  {flag}" for flag in framework_flags())
-        lines.append("  -lstdc++")
 
-    lines.append(")")
-    return lines
+    if is_windows:
+        append_unique(flags, ["-lasmrun"])
+    
+    slibs = pkg_config_libs(vcpkg_lib, "protobuf-lite", "SDL3")
+    append_unique(flags, slibs)
+    if is_apple:
+        append_unique(flags, framework_flags())
+    if is_windows:
+        append_unique(flags, windows_system_libs())
+    
+    if is_windows:
+        append_unique(flags, ["-l:libstdc++.a"])
+    else:
+        append_unique(flags, ["-lstdc++"])
+
+    return ["(", *(f"  {flag}" for flag in flags), ")"]
 
 
 def main() -> int:
@@ -150,7 +153,10 @@ def main() -> int:
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        "\n".join(render_lines(vcpkg_lib, build_dir, args.os_name)) + "\n",
+        "\n".join(
+            render_lines(vcpkg_lib, build_dir, args.os_name)
+        )
+        + "\n",
         encoding="utf-8",
     )
     return 0
