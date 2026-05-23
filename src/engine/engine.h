@@ -66,8 +66,8 @@ class Engine {
 	void init_decoders_only();
 
 	// Phase 2: bring up SDL3 + window + GL ctx + glad. Driven by a
-	// [StartRegl] BackendCommand. Returns false on failure; caller can
-	// read [last_error()].
+	// [StartRegl] BackendCommand. Returns false on failure after logging
+	// the concrete error.
 	bool
 	init_window_and_gl(const mlregl::transport::backend::StartRegl &start);
 
@@ -152,10 +152,5 @@ class Engine {
 	// AudioContext creation). Destroyed in [shutdown].
 	std::unique_ptr<AudioEngine> audio_;
 };
-
-// Static last-error string. Set by failing engine calls; cleared by
-// successful ones via set_error("").
-void set_error(std::string msg);
-const char *last_error();
 
 } // namespace declgl

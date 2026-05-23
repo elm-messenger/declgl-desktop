@@ -559,9 +559,7 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 					}
 					need_loop = true;
 				} else {
-					DECLGL_LOG_ERROR(
-						"init_window_and_gl failed: {}",
-						declgl::last_error());
+					DECLGL_LOG_ERROR("init_window_and_gl failed");
 					return false;
 				}
 			} else {

@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <string>
 
 #include "audio/audio_engine.h"
 #include "gpu/fbo_pool.h"
@@ -27,12 +26,6 @@ namespace declgl
 
 namespace
 {
-
-std::string &last_error_storage()
-{
-	static std::string s;
-	return s;
-}
 
 const char *describe_min(mlregl::transport::backend::TextureMinOption m)
 {
@@ -107,16 +100,6 @@ bool min_filter_uses_mipmaps(mlregl::transport::backend::TextureMinOption m)
 
 } // namespace
 
-void set_error(std::string msg)
-{
-	last_error_storage() = std::move(msg);
-}
-
-const char *last_error()
-{
-	return last_error_storage().c_str();
-}
-
 // ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
@@ -145,7 +128,6 @@ void Engine::init_decoders_only()
 	if (!audio_) {
 		audio_ = std::make_unique<AudioEngine>();
 	}
-	set_error("");
 }
 
 void Engine::set_audio_event_sink(EventSink sink)
@@ -166,7 +148,7 @@ bool Engine::init_window_and_gl(
 	}
 
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS)) {
-		set_error(std::string("SDL_Init: ") + SDL_GetError());
+		DECLGL_LOG_ERROR("SDL_Init failed: {}", SDL_GetError());
 		return false;
 	}
 
@@ -209,15 +191,15 @@ bool Engine::init_window_and_gl(
 
 	window_ = SDL_CreateWindow("declgl", w, h, wflags);
 	if (!window_) {
-		set_error(std::string("SDL_CreateWindow: ") + SDL_GetError());
+		DECLGL_LOG_ERROR("SDL_CreateWindow failed: {}", SDL_GetError());
 		SDL_Quit();
 		return false;
 	}
 
 	gl_ctx_ = SDL_GL_CreateContext(window_);
 	if (!gl_ctx_) {
-		set_error(std::string("SDL_GL_CreateContext: ") +
-			  SDL_GetError());
+		DECLGL_LOG_ERROR("SDL_GL_CreateContext failed: {}",
+				 SDL_GetError());
 		SDL_DestroyWindow(window_);
 		window_ = nullptr;
 		SDL_Quit();
@@ -225,7 +207,8 @@ bool Engine::init_window_and_gl(
 	}
 
 	if (!SDL_GL_MakeCurrent(window_, gl_ctx_)) {
-		set_error(std::string("SDL_GL_MakeCurrent: ") + SDL_GetError());
+		DECLGL_LOG_ERROR("SDL_GL_MakeCurrent failed: {}",
+				 SDL_GetError());
 		SDL_GL_DestroyContext(gl_ctx_);
 		gl_ctx_ = nullptr;
 		SDL_DestroyWindow(window_);
@@ -242,7 +225,7 @@ bool Engine::init_window_and_gl(
 	int gl_version = gladLoadGL(
 		reinterpret_cast<GLADloadfunc>(SDL_GL_GetProcAddress));
 	if (gl_version == 0) {
-		set_error("gladLoadGL failed");
+		DECLGL_LOG_ERROR("gladLoadGL failed");
 		shutdown();
 		return false;
 	}
@@ -310,7 +293,8 @@ bool Engine::init_window_and_gl(
 				static_cast<int>(start.fbo_num()) :
 				5;
 		if (!fbos_->init(fbo_count, pw, ph)) {
-			set_error("FboPool::init failed");
+			DECLGL_LOG_ERROR("FboPool::init failed (count={} size={}x{})",
+					 fbo_count, pw, ph);
 			shutdown();
 			return false;
 		}
@@ -344,13 +328,12 @@ bool Engine::init_window_and_gl(
 	}
 	programs_ok = decl_programs_->compile_all() && programs_ok;
 	if (!programs_ok) {
-		set_error("failed to register/compile builtin programs");
+		DECLGL_LOG_ERROR("failed to register/compile builtin programs");
 		shutdown();
 		return false;
 	}
 
 	start_ticks_ = SDL_GetTicks();
-	set_error("");
 	return true;
 }
 
