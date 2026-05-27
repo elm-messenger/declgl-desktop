@@ -8,14 +8,18 @@ namespace declgl::programs
 
 class DefaultCompositorProgram : public FullscreenProgram {
     public:
-	std::string_view name() const override { return "defaultCompositor"; }
+	std::string_view name() const override
+	{
+		return "defaultCompositor";
+	}
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("effect", ShaderKind::VERT);
 	}
 	std::string_view frag_source() const override
 	{
-		return builtin_shader_source("defaultCompositor", ShaderKind::FRAG);
+		return builtin_shader_source("defaultCompositor",
+					     ShaderKind::FRAG);
 	}
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
 		     const BuiltinTextures &builtin_textures,
@@ -23,4 +27,3 @@ class DefaultCompositorProgram : public FullscreenProgram {
 };
 
 } // namespace declgl::programs
-

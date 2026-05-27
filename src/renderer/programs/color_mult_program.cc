@@ -4,7 +4,7 @@ namespace declgl::programs
 {
 
 bool ColorMultProgram::prepare(const ProgramCallFields &fields,
-			       const RenderContext &/*ctx*/,
+			       const RenderContext & /*ctx*/,
 			       const BuiltinTextures &builtin_textures,
 			       DrawState &out_state)
 {
@@ -20,4 +20,3 @@ bool ColorMultProgram::prepare(const ProgramCallFields &fields,
 }
 
 } // namespace declgl::programs
-

@@ -59,10 +59,10 @@ bool field_bool(const ProgramCallFields &fields, std::string_view key,
 
 } // namespace
 
-bool TextboxProgram::prepare(
-	const ProgramCallFields &fields, const RenderContext &ctx,
-	const BuiltinTextures & /*builtin_textures*/,
-	DrawState &out_state)
+bool TextboxProgram::prepare(const ProgramCallFields &fields,
+			     const RenderContext &ctx,
+			     const BuiltinTextures & /*builtin_textures*/,
+			     DrawState &out_state)
 {
 	if (!ctx.fonts || !ctx.textures) {
 		return false;

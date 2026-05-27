@@ -4,9 +4,9 @@ namespace declgl::programs
 {
 
 bool PixilationProgram::prepare(const ProgramCallFields &fields,
-			       const RenderContext &ctx,
-			       const BuiltinTextures &builtin_textures,
-			       DrawState &out_state)
+				const RenderContext &ctx,
+				const BuiltinTextures &builtin_textures,
+				DrawState &out_state)
 {
 	prepare_fullscreen_quad(out_state);
 	set_uniform_f1(out_state, "pixelSize", number_field(fields, "ps", 1.f));
@@ -17,4 +17,3 @@ bool PixilationProgram::prepare(const ProgramCallFields &fields,
 }
 
 } // namespace declgl::programs
-

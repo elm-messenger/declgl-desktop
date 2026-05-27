@@ -11,7 +11,10 @@ namespace programs
 
 class TriangleProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "triangle"; }
+	std::string_view name() const override
+	{
+		return "triangle";
+	}
 
 	std::string_view vert_source() const override
 	{

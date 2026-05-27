@@ -9,7 +9,7 @@ namespace programs
 
 bool TriangleProgram::prepare(const ProgramCallFields &fields,
 			      const RenderContext &ctx,
-			      const BuiltinTextures &/*builtin_textures*/,
+			      const BuiltinTextures & /*builtin_textures*/,
 			      DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -46,10 +46,10 @@ bool TriangleProgram::prepare(const ProgramCallFields &fields,
 		       static_cast<size_t>(pos_arr.size() / 2));
 
 	// Uniform: color
-	set_uniform_f4(
-		out_state, "color", static_cast<float>(col_arr[0]),
-		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
-		static_cast<float>(col_arr[3]));
+	set_uniform_f4(out_state, "color", static_cast<float>(col_arr[0]),
+		       static_cast<float>(col_arr[1]),
+		       static_cast<float>(col_arr[2]),
+		       static_cast<float>(col_arr[3]));
 
 	// Built-in uniforms: view, camera
 	set_builtin_uniforms(ctx, out_state);

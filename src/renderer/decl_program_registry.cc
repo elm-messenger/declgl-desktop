@@ -22,8 +22,7 @@ namespace
 
 using BuiltinProgramFactory = std::unique_ptr<ProgramBase> (*)();
 
-template <typename ProgramT>
-std::unique_ptr<ProgramBase> make_builtin_program()
+template <typename ProgramT> std::unique_ptr<ProgramBase> make_builtin_program()
 {
 	return std::make_unique<ProgramT>();
 }
@@ -79,10 +78,10 @@ static constexpr BuiltinProgramSpec kBuiltinPrograms[] = {
 const BuiltinProgramSpec *find_builtin_program(std::string_view name)
 {
 	auto it = std::find_if(std::begin(kBuiltinPrograms),
-				       std::end(kBuiltinPrograms),
-				       [name](const BuiltinProgramSpec &spec) {
-					       return spec.name == name;
-				       });
+			       std::end(kBuiltinPrograms),
+			       [name](const BuiltinProgramSpec &spec) {
+				       return spec.name == name;
+			       });
 	return it == std::end(kBuiltinPrograms) ? nullptr : it;
 }
 

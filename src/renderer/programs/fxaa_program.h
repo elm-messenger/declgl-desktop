@@ -8,7 +8,10 @@ namespace declgl::programs
 
 class FxaaProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "fxaa"; }
+	std::string_view name() const override
+	{
+		return "fxaa";
+	}
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("fxaa", ShaderKind::VERT);
@@ -22,11 +25,10 @@ class FxaaProgram : public ProgramBase {
 		     DrawState &out_state) override;
 
     private:
-	static constexpr float kFullscreenPosition[8] = {
-		-1.f, 1.f, -1.f, -1.f, 1.f, -1.f, 1.f, 1.f
-	};
+	static constexpr float kFullscreenPosition[8] = { -1.f, 1.f, -1.f,
+							  -1.f, 1.f, -1.f,
+							  1.f,	1.f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 };
 
 } // namespace declgl::programs
-

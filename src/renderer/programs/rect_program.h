@@ -11,7 +11,10 @@ namespace programs
 
 class RectProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "rect"; }
+	std::string_view name() const override
+	{
+		return "rect";
+	}
 
 	std::string_view vert_source() const override
 	{
@@ -28,9 +31,8 @@ class RectProgram : public ProgramBase {
 
     private:
 	// Static position: [0,1]^2 quad (matches JS rect convention)
-	static constexpr float kQuadPos[8] = {
-		0.f, 1.f, 1.f, 1.f, 1.f, 0.f, 0.f, 0.f
-	};
+	static constexpr float kQuadPos[8] = { 0.f, 1.f, 1.f, 1.f,
+					       1.f, 0.f, 0.f, 0.f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 };
 

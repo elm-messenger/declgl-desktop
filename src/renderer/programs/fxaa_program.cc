@@ -3,7 +3,7 @@
 namespace declgl::programs
 {
 
-bool FxaaProgram::prepare(const ProgramCallFields &/*fields*/,
+bool FxaaProgram::prepare(const ProgramCallFields & /*fields*/,
 			  const RenderContext &ctx,
 			  const BuiltinTextures &builtin_textures,
 			  DrawState &out_state)
@@ -21,4 +21,3 @@ bool FxaaProgram::prepare(const ProgramCallFields &/*fields*/,
 }
 
 } // namespace declgl::programs
-

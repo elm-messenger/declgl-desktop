@@ -59,6 +59,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "resources/image_decoder.h"
@@ -75,6 +76,9 @@ enum class AssetKind {
 	Texture,
 	Font,
 	Audio,
+	File,
+	KvLoad,
+	KvSave,
 };
 
 // One job submitted by the GL thread to the worker.
@@ -111,6 +115,9 @@ struct DecodeJob {
 	// device rate the worker should resample to. Set by the engine
 	// from [AudioEngine::device_sample_rate()] at enqueue time.
 	uint32_t audio_sample_rate = 0;
+
+	// KvSave only: snapshot to persist as JSON. [image_url] is the target path.
+	std::unordered_map<std::string, std::string> kv_values;
 };
 
 // What the worker hands back to the GL thread once the job is done.
@@ -139,6 +146,10 @@ struct ReadyAsset {
 	// Audio-only: classification of the failure (mirrors the proto's
 	// AudioLoadError enum). [None] on success.
 	AudioDecodeError audio_error = AudioDecodeError::None;
+
+	// File only: loaded text bytes. KvLoad only: values parsed from JSON.
+	std::string file_data;
+	std::unordered_map<std::string, std::string> kv_values;
 
 	// Echo of the job's filter selections (texture only).
 	int min_filter_enum = 0;

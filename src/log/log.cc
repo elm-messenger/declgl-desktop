@@ -38,17 +38,27 @@ quill::LogLevel parse_log_level(const char *s)
 	std::string v(s);
 	// case-insensitive compare
 	for (auto &c : v) {
-		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		c = static_cast<char>(
+			std::tolower(static_cast<unsigned char>(c)));
 	}
-	if (v == "trace" || v == "trace3" || v == "tracel3") return quill::LogLevel::TraceL3;
-	if (v == "trace2" || v == "tracel2") return quill::LogLevel::TraceL2;
-	if (v == "trace1" || v == "tracel1") return quill::LogLevel::TraceL1;
-	if (v == "debug") return quill::LogLevel::Debug;
-	if (v == "info") return quill::LogLevel::Info;
-	if (v == "notice") return quill::LogLevel::Notice;
-	if (v == "warning" || v == "warn") return quill::LogLevel::Warning;
-	if (v == "error" || v == "err") return quill::LogLevel::Error;
-	if (v == "critical" || v == "fatal") return quill::LogLevel::Critical;
+	if (v == "trace" || v == "trace3" || v == "tracel3")
+		return quill::LogLevel::TraceL3;
+	if (v == "trace2" || v == "tracel2")
+		return quill::LogLevel::TraceL2;
+	if (v == "trace1" || v == "tracel1")
+		return quill::LogLevel::TraceL1;
+	if (v == "debug")
+		return quill::LogLevel::Debug;
+	if (v == "info")
+		return quill::LogLevel::Info;
+	if (v == "notice")
+		return quill::LogLevel::Notice;
+	if (v == "warning" || v == "warn")
+		return quill::LogLevel::Warning;
+	if (v == "error" || v == "err")
+		return quill::LogLevel::Error;
+	if (v == "critical" || v == "fatal")
+		return quill::LogLevel::Critical;
 	return quill::LogLevel::Warning;
 }
 

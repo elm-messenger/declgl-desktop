@@ -36,7 +36,10 @@ class DeclProgramRegistry {
 	// Compile all registered programs. Returns false if any failed.
 	bool compile_all();
 
-	void clear() { programs_.clear(); }
+	void clear()
+	{
+		programs_.clear();
+	}
 
     private:
 	std::unordered_map<std::string, std::unique_ptr<ProgramBase> > programs_;

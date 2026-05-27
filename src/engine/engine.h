@@ -26,6 +26,9 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_set>
+#include <unordered_map>
+#include <vector>
 
 #include "transport_backend.pb.h"
 #include "transport_render.pb.h"
@@ -115,6 +118,10 @@ class Engine {
 	// through [event_sink_]. No-op (with a one-shot warning) if no sink
 	// was registered.
 	void ship_event(const mlregl::transport::backend::BackendEvent &ev);
+	void ensure_kv_load_started();
+	void enqueue_kv_persist();
+	std::string kv_store_path() const;
+	void ship_value_read_result(const std::string &key);
 
 	// Pop ready-asset records off [loader_] and finish them on the GL
 	// thread: glTexImage2D, register in TextureRegistry / FontRegistry,
@@ -128,6 +135,11 @@ class Engine {
 	std::string asset_root_;
 	Uint64 start_ticks_ = 0;
 	EventSink event_sink_;
+	bool kv_load_started_ = false;
+	bool kv_loaded_ = false;
+	std::unordered_map<std::string, std::string> kv_store_;
+	std::unordered_set<std::string> kv_dirty_keys_;
+	std::vector<std::string> pending_kv_reads_;
 
 	// M3.B+: GPU resources. Lazily constructed in init_window_and_gl
 	// because they require an active GL context.

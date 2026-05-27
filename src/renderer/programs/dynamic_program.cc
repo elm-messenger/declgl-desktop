@@ -142,11 +142,10 @@ std::vector<float> DynamicProgram::value_as_floats(const Value &value)
 		// this is a programmer error in the OCaml-side Program
 		// definition. Surface it loudly instead of silently
 		// rendering with an empty value vector.
-		DECLGL_LOG_ERROR(
-			"DynamicProgram: numeric value expected, got "
-			"string_array_value with {} entries; "
-			"value will be dropped",
-			value.string_array_value().values_size());
+		DECLGL_LOG_ERROR("DynamicProgram: numeric value expected, got "
+				 "string_array_value with {} entries; "
+				 "value will be dropped",
+				 value.string_array_value().values_size());
 		break;
 	case Value::kStringValue:
 	case Value::kBoolValue:
@@ -155,12 +154,11 @@ std::vector<float> DynamicProgram::value_as_floats(const Value &value)
 		// glUniform1i). Reaching this branch means a caller
 		// asked for a numeric float vector from a non-numeric
 		// value — a programmer error.
-		DECLGL_LOG_ERROR(
-			"DynamicProgram: numeric value expected, got "
-			"{} value; value will be dropped",
-			value.kind_case() == Value::kStringValue ?
-				"string" :
-				"bool");
+		DECLGL_LOG_ERROR("DynamicProgram: numeric value expected, got "
+				 "{} value; value will be dropped",
+				 value.kind_case() == Value::kStringValue ?
+					 "string" :
+					 "bool");
 		break;
 	case Value::KIND_NOT_SET:
 		break;
@@ -310,10 +308,10 @@ bool DynamicProgram::resolve_indices(const ProgramCallFields &fields,
 	return true;
 }
 
-bool DynamicProgram::prepare(
-	const ProgramCallFields &fields, const RenderContext &ctx,
-	const BuiltinTextures & /*builtin_textures*/,
-	DrawState &out_state)
+bool DynamicProgram::prepare(const ProgramCallFields &fields,
+			     const RenderContext &ctx,
+			     const BuiltinTextures & /*builtin_textures*/,
+			     DrawState &out_state)
 {
 	out_state.primitive = GL_TRIANGLES;
 	resolve_primitive(fields, out_state.primitive);

@@ -8,7 +8,10 @@ namespace declgl::programs
 
 class BlurHProgram : public FullscreenProgram {
     public:
-	std::string_view name() const override { return "blurh"; }
+	std::string_view name() const override
+	{
+		return "blurh";
+	}
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("effect", ShaderKind::VERT);
@@ -23,4 +26,3 @@ class BlurHProgram : public FullscreenProgram {
 };
 
 } // namespace declgl::programs
-

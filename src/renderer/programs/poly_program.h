@@ -12,7 +12,10 @@ namespace programs
 // poly program: generic polygon with custom primitive and optional indices
 class PolyProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "poly"; }
+	std::string_view name() const override
+	{
+		return "poly";
+	}
 
 	std::string_view vert_source() const override
 	{
@@ -31,7 +34,10 @@ class PolyProgram : public ProgramBase {
 // quad program: 4-vertex quad with indices
 class QuadProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "quad"; }
+	std::string_view name() const override
+	{
+		return "quad";
+	}
 
 	std::string_view vert_source() const override
 	{

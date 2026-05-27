@@ -293,8 +293,9 @@ bool Engine::init_window_and_gl(
 				static_cast<int>(start.fbo_num()) :
 				5;
 		if (!fbos_->init(fbo_count, pw, ph)) {
-			DECLGL_LOG_ERROR("FboPool::init failed (count={} size={}x{})",
-					 fbo_count, pw, ph);
+			DECLGL_LOG_ERROR(
+				"FboPool::init failed (count={} size={}x{})",
+				fbo_count, pw, ph);
 			shutdown();
 			return false;
 		}
@@ -315,7 +316,8 @@ bool Engine::init_window_and_gl(
 	if (start.has_builtin_programs()) {
 		(void)register_builtin_decl_program(*decl_programs_, "palette");
 		for (const auto &name : start.builtin_programs().values()) {
-			if (!register_builtin_decl_program(*decl_programs_, name)) {
+			if (!register_builtin_decl_program(*decl_programs_,
+							   name)) {
 				DECLGL_LOG_ERROR(
 					"unknown builtin program requested in "
 					"StartRegl.builtin_programs: '{}'",
@@ -335,6 +337,62 @@ bool Engine::init_window_and_gl(
 
 	start_ticks_ = SDL_GetTicks();
 	return true;
+}
+
+std::string Engine::kv_store_path() const
+{
+	char *pref = SDL_GetPrefPath("ml-regl", "declgl");
+	if (pref) {
+		std::string path(pref);
+		SDL_free(pref);
+		return path + "kv_store.json";
+	}
+	DECLGL_LOG_WARN(
+		"SDL_GetPrefPath failed for kv storage; using current directory");
+	return "ml_regl_kv_store.json";
+}
+
+void Engine::ensure_kv_load_started()
+{
+	if (kv_load_started_ || kv_loaded_) {
+		return;
+	}
+	kv_load_started_ = true;
+	if (!loader_) {
+		loader_ = std::make_unique<AssetLoader>();
+	}
+	DecodeJob job;
+	job.kind = AssetKind::KvLoad;
+	job.name = "kv_store";
+	job.image_url = kv_store_path();
+	loader_->enqueue(std::move(job));
+}
+
+void Engine::enqueue_kv_persist()
+{
+	if (!loader_) {
+		loader_ = std::make_unique<AssetLoader>();
+	}
+	DecodeJob job;
+	job.kind = AssetKind::KvSave;
+	job.name = "kv_store";
+	job.image_url = kv_store_path();
+	job.kv_values = kv_store_;
+	loader_->enqueue(std::move(job));
+}
+
+void Engine::ship_value_read_result(const std::string &key)
+{
+	mlregl::transport::backend::BackendEvent ev;
+	auto it = kv_store_.find(key);
+	if (it == kv_store_.end()) {
+		ev.mutable_value_read_missing()->set_key(key);
+	} else {
+		auto *msg = ev.mutable_value_read();
+		msg->set_key(key);
+		msg->set_value(it->second);
+	}
+	ship_event(ev);
 }
 
 void Engine::dispatch_backend_command(
@@ -556,6 +614,38 @@ void Engine::dispatch_backend_command(
 		}
 		break;
 	}
+	case BackendCommand::kSaveValue: {
+		const auto &sv = cmd.save_value();
+		ensure_kv_load_started();
+		kv_store_[sv.key()] = sv.value();
+		kv_dirty_keys_.insert(sv.key());
+		if (kv_loaded_) {
+			enqueue_kv_persist();
+		}
+		break;
+	}
+	case BackendCommand::kReadValue: {
+		const auto &rv = cmd.read_value();
+		ensure_kv_load_started();
+		if (kv_loaded_) {
+			ship_value_read_result(rv.key());
+		} else {
+			pending_kv_reads_.push_back(rv.key());
+		}
+		break;
+	}
+	case BackendCommand::kLoadFile: {
+		const auto &lf = cmd.load_file();
+		if (!loader_) {
+			loader_ = std::make_unique<AssetLoader>();
+		}
+		DecodeJob job;
+		job.kind = AssetKind::File;
+		job.name = lf.path();
+		job.image_url = lf.path();
+		loader_->enqueue(std::move(job));
+		break;
+	}
 	case BackendCommand::kStartRegl:
 		// The bridge handles StartRegl itself (it owns window+loop
 		// lifecycle); it never forwards it here.
@@ -632,10 +722,7 @@ void Engine::ship_event(const mlregl::transport::backend::BackendEvent &ev)
 
 void Engine::drain_ready_assets(std::size_t max_items)
 {
-	if (!loader_ || !textures_ || !fonts_) {
-		// Pre-StartRegl: GL not up yet, so we can't upload. Leave the
-		// ready queue alone; we'll come back next [render()] once
-		// [init_window_and_gl] has constructed the registries.
+	if (!loader_) {
 		return;
 	}
 
@@ -646,6 +733,63 @@ void Engine::drain_ready_assets(std::size_t max_items)
 	loader_->drain_ready(ready, max_items);
 
 	for (auto &r : ready) {
+		// ---- File / KV storage ----
+		// These jobs are worker-thread filesystem I/O only; finishing them
+		// here is cheap and does not require GL objects.
+		if (r.kind == AssetKind::File) {
+			BackendEvent ev;
+			if (r.error.empty()) {
+				auto *msg = ev.mutable_file_loaded();
+				msg->set_path(r.name);
+				msg->set_data(std::move(r.file_data));
+			} else {
+				auto *msg = ev.mutable_file_load_failed();
+				msg->set_path(r.name);
+				msg->set_reason(std::move(r.error));
+			}
+			ship_event(ev);
+			continue;
+		}
+
+		if (r.kind == AssetKind::KvLoad) {
+			if (!r.error.empty()) {
+				DECLGL_LOG_ERROR("kv store load failed: {}",
+						 r.error);
+			}
+			for (auto &kv : r.kv_values) {
+				// SaveValue updates made while the load was in flight win
+				// over older on-disk values.
+				if (kv_dirty_keys_.find(kv.first) ==
+				    kv_dirty_keys_.end()) {
+					kv_store_[std::move(kv.first)] =
+						std::move(kv.second);
+				}
+			}
+			kv_loaded_ = true;
+			if (!kv_dirty_keys_.empty()) {
+				enqueue_kv_persist();
+			}
+			for (const std::string &key : pending_kv_reads_) {
+				ship_value_read_result(key);
+			}
+			pending_kv_reads_.clear();
+			continue;
+		}
+
+		if (r.kind == AssetKind::KvSave) {
+			if (!r.error.empty()) {
+				DECLGL_LOG_ERROR("kv store save failed: {}",
+						 r.error);
+			}
+			continue;
+		}
+
+		if (!textures_ || !fonts_) {
+			// GL not up: leave non-storage assets for a future frame by not
+			// expected path; render() only calls us after GL init.
+			continue;
+		}
+
 		// ---- Audio ----
 		// Doesn't touch GL: just register the PCM into the
 		// AudioEngine (or ship audio_load_failed). Done first so

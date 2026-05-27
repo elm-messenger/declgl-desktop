@@ -15,7 +15,10 @@ namespace programs
 // texture program: position from 'pos', texc hardcoded
 class TextureProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "texture"; }
+	std::string_view name() const override
+	{
+		return "texture";
+	}
 
 	std::string_view vert_source() const override
 	{
@@ -36,16 +39,18 @@ class TextureProgram : public ProgramBase {
 
     protected:
 	// Default UV quad (Y-flipped corners)
-	static constexpr float kDefaultTexc[8] = {
-		0.f, 1.f, 1.f, 1.f, 1.f, 0.f, 0.f, 0.f
-	};
+	static constexpr float kDefaultTexc[8] = { 0.f, 1.f, 1.f, 1.f,
+						   1.f, 0.f, 0.f, 0.f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 };
 
 // textureCropped program: position from 'pos', texc from 'texc' field
 class TextureCroppedProgram : public TextureProgram {
     public:
-	std::string_view name() const override { return "textureCropped"; }
+	std::string_view name() const override
+	{
+		return "textureCropped";
+	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
 		     const BuiltinTextures &builtin_textures,
@@ -55,15 +60,20 @@ class TextureCroppedProgram : public TextureProgram {
 // centeredTexture program: no position attribute, uses posize uniform
 class CenteredTextureProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "centeredTexture"; }
+	std::string_view name() const override
+	{
+		return "centeredTexture";
+	}
 
 	std::string_view vert_source() const override
 	{
-		return builtin_shader_source("textureCentered", ShaderKind::VERT);
+		return builtin_shader_source("textureCentered",
+					     ShaderKind::VERT);
 	}
 	std::string_view frag_source() const override
 	{
-		return builtin_shader_source("textureCentered", ShaderKind::FRAG);
+		return builtin_shader_source("textureCentered",
+					     ShaderKind::FRAG);
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
@@ -71,9 +81,8 @@ class CenteredTextureProgram : public ProgramBase {
 		     DrawState &out_state) override;
 
     protected:
-	static constexpr float kDefaultTexc[8] = {
-		0.f, 1.f, 1.f, 1.f, 1.f, 0.f, 0.f, 0.f
-	};
+	static constexpr float kDefaultTexc[8] = { 0.f, 1.f, 1.f, 1.f,
+						   1.f, 0.f, 0.f, 0.f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 };
 
@@ -88,11 +97,12 @@ class CenteredCroppedTextureProgram : public ProgramBase {
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("textureCroppedCentered",
-					    ShaderKind::VERT);
+					     ShaderKind::VERT);
 	}
 	std::string_view frag_source() const override
 	{
-		return builtin_shader_source("textureCentered", ShaderKind::FRAG);
+		return builtin_shader_source("textureCentered",
+					     ShaderKind::FRAG);
 	}
 
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
@@ -101,9 +111,8 @@ class CenteredCroppedTextureProgram : public ProgramBase {
 
     protected:
 	// texc2: NDC-style corners for posize expansion
-	static constexpr float kTexc2[8] = {
-		-0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, -0.5f, -0.5f
-	};
+	static constexpr float kTexc2[8] = { -0.5f, 0.5f,  0.5f,  0.5f,
+					     0.5f,  -0.5f, -0.5f, -0.5f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 };
 

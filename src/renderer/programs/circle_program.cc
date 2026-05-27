@@ -9,7 +9,7 @@ namespace programs
 
 bool CircleProgram::prepare(const ProgramCallFields &fields,
 			    const RenderContext &ctx,
-			    const BuiltinTextures &/*builtin_textures*/,
+			    const BuiltinTextures & /*builtin_textures*/,
 			    DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -51,10 +51,10 @@ bool CircleProgram::prepare(const ProgramCallFields &fields,
 		       static_cast<float>(cr_arr[2]));
 
 	// Uniform: color
-	set_uniform_f4(
-		out_state, "color", static_cast<float>(col_arr[0]),
-		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
-		static_cast<float>(col_arr[3]));
+	set_uniform_f4(out_state, "color", static_cast<float>(col_arr[0]),
+		       static_cast<float>(col_arr[1]),
+		       static_cast<float>(col_arr[2]),
+		       static_cast<float>(col_arr[3]));
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);
@@ -64,7 +64,7 @@ bool CircleProgram::prepare(const ProgramCallFields &fields,
 
 bool RoundedRectProgram::prepare(const ProgramCallFields &fields,
 				 const RenderContext &ctx,
-				 const BuiltinTextures &/*builtin_textures*/,
+				 const BuiltinTextures & /*builtin_textures*/,
 				 DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -109,19 +109,19 @@ bool RoundedRectProgram::prepare(const ProgramCallFields &fields,
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: cs (x, y, w, h)
-	set_uniform_f4(
-		out_state, "cs", static_cast<float>(cs_arr[0]),
-		static_cast<float>(cs_arr[1]), static_cast<float>(cs_arr[2]),
-		static_cast<float>(cs_arr[3]));
+	set_uniform_f4(out_state, "cs", static_cast<float>(cs_arr[0]),
+		       static_cast<float>(cs_arr[1]),
+		       static_cast<float>(cs_arr[2]),
+		       static_cast<float>(cs_arr[3]));
 
 	// Uniform: radius
 	set_uniform_f1(out_state, "radius", radius);
 
 	// Uniform: color
-	set_uniform_f4(
-		out_state, "color", static_cast<float>(col_arr[0]),
-		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
-		static_cast<float>(col_arr[3]));
+	set_uniform_f4(out_state, "color", static_cast<float>(col_arr[0]),
+		       static_cast<float>(col_arr[1]),
+		       static_cast<float>(col_arr[2]),
+		       static_cast<float>(col_arr[3]));
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);

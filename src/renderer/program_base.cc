@@ -151,10 +151,10 @@ void ProgramBase::draw(const DrawState &state)
 	// Set uniforms
 	int texture_unit = 0;
 	for (const auto &u : state.uniforms) {
-		const GLint loc = u.loc >= 0 ? u.loc :
-				     !u.name.empty() ?
-					     program_.uniform_location(u.name) :
-					     -1;
+		const GLint loc =
+			u.loc >= 0	? u.loc :
+			!u.name.empty() ? program_.uniform_location(u.name) :
+					  -1;
 		if (loc < 0)
 			continue;
 
@@ -199,7 +199,8 @@ void ProgramBase::draw(const DrawState &state)
 	// Orphan dynamic attribute storage only when dynamic data exists.
 	glBindBuffer(GL_ARRAY_BUFFER, dynamic_vbo_);
 	if (total_size > 0) {
-		glBufferData(GL_ARRAY_BUFFER, total_size, nullptr, GL_STREAM_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, total_size, nullptr,
+			     GL_STREAM_DRAW);
 	}
 
 	GLintptr offset = 0;
@@ -207,10 +208,10 @@ void ProgramBase::draw(const DrawState &state)
 
 	// Static attributes (cached in program-owned GPU buffers)
 	for (const auto &a : state.static_attribs) {
-		const GLint loc = a.loc >= 0 ? a.loc :
-				     !a.name.empty() ?
-					     program_.attribute_location(a.name) :
-					     -1;
+		const GLint loc =
+			a.loc >= 0	? a.loc :
+			!a.name.empty() ? program_.attribute_location(a.name) :
+					  -1;
 		if (loc < 0)
 			continue;
 
@@ -224,10 +225,10 @@ void ProgramBase::draw(const DrawState &state)
 	// Dynamic attributes (copied into DrawState)
 	glBindBuffer(GL_ARRAY_BUFFER, dynamic_vbo_);
 	for (const auto &a : state.dyn_attribs) {
-		const GLint loc = a.loc >= 0 ? a.loc :
-				     !a.name.empty() ?
-					     program_.attribute_location(a.name) :
-					     -1;
+		const GLint loc =
+			a.loc >= 0	? a.loc :
+			!a.name.empty() ? program_.attribute_location(a.name) :
+					  -1;
 		if (loc < 0)
 			continue;
 

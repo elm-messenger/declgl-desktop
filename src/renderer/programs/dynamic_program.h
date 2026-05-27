@@ -35,10 +35,9 @@ class DynamicProgram : public ProgramBase {
 		return frag_src_;
 	}
 
-	bool
-	prepare(const ProgramCallFields &fields, const RenderContext &ctx,
-		const BuiltinTextures &builtin_textures,
-		DrawState &out_state) override;
+	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const BuiltinTextures &builtin_textures,
+		     DrawState &out_state) override;
 
     protected:
 	bool after_compile() override;

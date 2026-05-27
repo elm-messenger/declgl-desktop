@@ -132,11 +132,10 @@ int FboPool::acquire()
 	// the new palette to the current pool dimensions so it can be
 	// used immediately by the in-flight render walk.
 	const int new_size = static_cast<int>(fbos_.size()) + 1;
-	DECLGL_LOG_WARN(
-		"FBO pool full (size={}); growing to {} (cap={}). "
-		"Consider raising StartRegl.fbo_num to avoid mid-frame "
-		"GL allocations.",
-		static_cast<int>(fbos_.size()), new_size, kMaxFbos);
+	DECLGL_LOG_WARN("FBO pool full (size={}); growing to {} (cap={}). "
+			"Consider raising StartRegl.fbo_num to avoid mid-frame "
+			"GL allocations.",
+			static_cast<int>(fbos_.size()), new_size, kMaxFbos);
 
 	Fbo nf;
 	if (!create_fbo(nf, cur_w_, cur_h_)) {

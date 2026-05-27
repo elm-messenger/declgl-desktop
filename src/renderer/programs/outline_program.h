@@ -8,7 +8,10 @@ namespace declgl::programs
 
 class OutlineProgram : public FullscreenProgram {
     public:
-	std::string_view name() const override { return "outline"; }
+	std::string_view name() const override
+	{
+		return "outline";
+	}
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("effect", ShaderKind::VERT);
@@ -23,4 +26,3 @@ class OutlineProgram : public FullscreenProgram {
 };
 
 } // namespace declgl::programs
-

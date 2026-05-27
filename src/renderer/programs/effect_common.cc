@@ -24,8 +24,8 @@ float number_field(const ProgramCallFields &fields, std::string_view key,
 int int_field(const ProgramCallFields &fields, std::string_view key,
 	      int fallback)
 {
-	return static_cast<int>(number_field(fields, key,
-					  static_cast<float>(fallback)));
+	return static_cast<int>(
+		number_field(fields, key, static_cast<float>(fallback)));
 }
 
 void vec4_field(const ProgramCallFields &fields, std::string_view key,
@@ -67,4 +67,3 @@ const Texture *texture_field(const ProgramCallFields &fields,
 
 } // namespace programs
 } // namespace declgl
-

@@ -27,8 +27,7 @@ namespace declgl
 {
 
 using ProgramCallField = mlregl::transport::render::ProgramCallField;
-using ProgramCallFields =
-	google::protobuf::RepeatedPtrField<ProgramCallField>;
+using ProgramCallFields = google::protobuf::RepeatedPtrField<ProgramCallField>;
 
 // Helper: find field by key. Returns nullptr if absent.
 const ProgramCallField *find_field(const ProgramCallFields &fields,
@@ -158,8 +157,8 @@ struct DrawState {
 	void add_static_attrib(std::string name, GLint components,
 			       const float *data, GLsizei vertex_count)
 	{
-		static_attribs.push_back({ std::move(name), -1, components, data,
-						 vertex_count });
+		static_attribs.push_back({ std::move(name), -1, components,
+					   data, vertex_count });
 	}
 	void add_static_attrib(GLint loc, GLint components, const float *data,
 			       GLsizei vertex_count)
@@ -226,7 +225,8 @@ struct DrawState {
 		u.f3[2] = z;
 		uniforms.push_back(std::move(u));
 	}
-	void set_uniform_f4(std::string name, float x, float y, float z, float w)
+	void set_uniform_f4(std::string name, float x, float y, float z,
+			    float w)
 	{
 		UniformVal u;
 		u.name = std::move(name);
@@ -287,7 +287,7 @@ struct DrawState {
 
 // Abstract base class for all declarative programs.
 class ProgramBase {
-	public:
+    public:
 	virtual ~ProgramBase();
 
 	// --- Program definition (override these) ---
@@ -304,9 +304,9 @@ class ProgramBase {
 	// ctx provides access to textures, fonts, viewport, camera, etc.
 	// builtin_textures contains FBO textures for effects/compositors (t1, t2, texture, fbo).
 	virtual bool prepare(const ProgramCallFields &fields,
-		     const RenderContext &ctx,
-		     const BuiltinTextures &builtin_textures,
-		     DrawState &out_state) = 0;
+			     const RenderContext &ctx,
+			     const BuiltinTextures &builtin_textures,
+			     DrawState &out_state) = 0;
 
 	// --- Provided by base class ---
 
@@ -319,12 +319,21 @@ class ProgramBase {
 	void draw(const DrawState &state);
 
 	// Access to underlying GL program
-	GLuint gl_program_id() const { return program_.id(); }
-	const Program &gl_program() const { return program_; }
+	GLuint gl_program_id() const
+	{
+		return program_.id();
+	}
+	const Program &gl_program() const
+	{
+		return program_;
+	}
 
     protected:
 	ProgramBase() = default;
-	virtual bool after_compile() { return true; }
+	virtual bool after_compile()
+	{
+		return true;
+	}
 
 	GLint uniform_location(std::string_view name) const
 	{
@@ -353,10 +362,11 @@ class ProgramBase {
 			       GLint components, const float *data,
 			       GLsizei vertex_count) const
 	{
-		state.add_static_attrib(attribute_location(name), components, data,
-					vertex_count);
+		state.add_static_attrib(attribute_location(name), components,
+					data, vertex_count);
 	}
-	void set_uniform_f1(DrawState &state, std::string_view name, float v) const
+	void set_uniform_f1(DrawState &state, std::string_view name,
+			    float v) const
 	{
 		state.set_uniform_f1(uniform_location(name), v);
 	}
@@ -375,7 +385,8 @@ class ProgramBase {
 	{
 		state.set_uniform_f4(uniform_location(name), x, y, z, w);
 	}
-	void set_uniform_i1(DrawState &state, std::string_view name, int v) const
+	void set_uniform_i1(DrawState &state, std::string_view name,
+			    int v) const
 	{
 		state.set_uniform_i1(uniform_location(name), v);
 	}

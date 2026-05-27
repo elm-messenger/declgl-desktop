@@ -30,7 +30,7 @@ const Texture *TextureProgram::resolve_texture(const ProgramCallFields &fields,
 
 bool TextureProgram::prepare(const ProgramCallFields &fields,
 			     const RenderContext &ctx,
-			     const BuiltinTextures &/*builtin_textures*/,
+			     const BuiltinTextures & /*builtin_textures*/,
 			     DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -86,10 +86,9 @@ bool TextureProgram::prepare(const ProgramCallFields &fields,
 	return true;
 }
 
-bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
-				    const RenderContext &ctx,
-				    const BuiltinTextures &/*builtin_textures*/,
-				    DrawState &out_state)
+bool TextureCroppedProgram::prepare(
+	const ProgramCallFields &fields, const RenderContext &ctx,
+	const BuiltinTextures & /*builtin_textures*/, DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -160,10 +159,9 @@ bool TextureCroppedProgram::prepare(const ProgramCallFields &fields,
 	return true;
 }
 
-bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
-				     const RenderContext &ctx,
-				     const BuiltinTextures &/*builtin_textures*/,
-				     DrawState &out_state)
+bool CenteredTextureProgram::prepare(
+	const ProgramCallFields &fields, const RenderContext &ctx,
+	const BuiltinTextures & /*builtin_textures*/, DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -199,11 +197,10 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 	set_uniform_tex(out_state, "tex", tex->id());
 
 	// Uniform: posize
-	set_uniform_f4(
-		out_state, "posize", static_cast<float>(posize_arr[0]),
-		static_cast<float>(posize_arr[1]),
-		static_cast<float>(posize_arr[2]),
-		static_cast<float>(posize_arr[3]));
+	set_uniform_f4(out_state, "posize", static_cast<float>(posize_arr[0]),
+		       static_cast<float>(posize_arr[1]),
+		       static_cast<float>(posize_arr[2]),
+		       static_cast<float>(posize_arr[3]));
 
 	// Uniform: angle (optional, default 0)
 	float angle = 0.f;
@@ -229,10 +226,9 @@ bool CenteredTextureProgram::prepare(const ProgramCallFields &fields,
 	return true;
 }
 
-bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
-					    const RenderContext &ctx,
-					    const BuiltinTextures &/*builtin_textures*/,
-					    DrawState &out_state)
+bool CenteredCroppedTextureProgram::prepare(
+	const ProgramCallFields &fields, const RenderContext &ctx,
+	const BuiltinTextures & /*builtin_textures*/, DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
 
@@ -269,9 +265,8 @@ bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 	const float y1 = static_cast<float>(texc_arr[1]);
 	const float w = static_cast<float>(texc_arr[2]);
 	const float h = static_cast<float>(texc_arr[3]);
-	std::array<float, 8> expanded_texc = {
-		x1, y1, x1 + w, y1, x1 + w, y1 + h, x1, y1 + h
-	};
+	std::array<float, 8> expanded_texc = { x1,     y1,     x1 + w, y1,
+					       x1 + w, y1 + h, x1,     y1 + h };
 
 	// Setup draw state
 	out_state.primitive = GL_TRIANGLES;
@@ -291,11 +286,10 @@ bool CenteredCroppedTextureProgram::prepare(const ProgramCallFields &fields,
 	set_uniform_tex(out_state, "tex", tex->id());
 
 	// Uniform: posize
-	set_uniform_f4(
-		out_state, "posize", static_cast<float>(posize_arr[0]),
-		static_cast<float>(posize_arr[1]),
-		static_cast<float>(posize_arr[2]),
-		static_cast<float>(posize_arr[3]));
+	set_uniform_f4(out_state, "posize", static_cast<float>(posize_arr[0]),
+		       static_cast<float>(posize_arr[1]),
+		       static_cast<float>(posize_arr[2]),
+		       static_cast<float>(posize_arr[3]));
 
 	// Uniform: angle (optional, default 0)
 	float angle = 0.f;

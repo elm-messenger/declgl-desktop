@@ -12,9 +12,8 @@ namespace programs
 
 class FullscreenProgram : public ProgramBase {
     protected:
-	static constexpr float kFullscreenTexc[8] = {
-		1.f, 1.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f
-	};
+	static constexpr float kFullscreenTexc[8] = { 1.f, 1.f, 1.f, 0.f,
+						      0.f, 0.f, 0.f, 1.f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 
 	void prepare_fullscreen_quad(DrawState &out_state) const

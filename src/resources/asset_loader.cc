@@ -5,7 +5,10 @@
 #include "resources/asset_loader.h"
 
 #include <cstdio>
+#include <fstream>
 #include <utility>
+
+#include <nlohmann/json.hpp>
 
 #include "audio/audio_decoder.h"
 #include "resources/font.h"
@@ -159,6 +162,57 @@ bool slurp_file(const std::string &path, std::string &out, std::string &err)
 	return true;
 }
 
+void load_kv_json(const std::string &path, ReadyAsset &out)
+{
+	std::ifstream in(path, std::ios::binary);
+	if (!in) {
+		// Missing store is a normal first-run condition.
+		return;
+	}
+	try {
+		nlohmann::json doc = nlohmann::json::parse(in);
+		const auto it = doc.find("values");
+		if (it == doc.end() || !it->is_object()) {
+			return;
+		}
+		for (auto kv = it->begin(); kv != it->end(); ++kv) {
+			if (kv.value().is_string()) {
+				out.kv_values[kv.key()] =
+					kv.value().get<std::string>();
+			}
+		}
+	} catch (const std::exception &e) {
+		out.error = std::string("json parse: ") + e.what();
+	}
+}
+
+void save_kv_json(const std::string &path,
+		  const std::unordered_map<std::string, std::string> &values,
+		  ReadyAsset &out)
+{
+	try {
+		nlohmann::json json_values = nlohmann::json::object();
+		for (const auto &kv : values) {
+			json_values[kv.first] = kv.second;
+		}
+		nlohmann::json doc;
+		doc["version"] = 1;
+		doc["values"] = std::move(json_values);
+
+		std::ofstream os(path, std::ios::binary | std::ios::trunc);
+		if (!os) {
+			out.error = "open for write";
+			return;
+		}
+		os << doc.dump(2);
+		if (!os) {
+			out.error = "write failed";
+		}
+	} catch (const std::exception &e) {
+		out.error = e.what();
+	}
+}
+
 } // namespace
 
 void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
@@ -201,6 +255,24 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 						      err_msg;
 			return;
 		}
+		return;
+	}
+
+	if (job.kind == AssetKind::File) {
+		std::string err;
+		if (!slurp_file(job.image_url, out.file_data, err)) {
+			out.error = std::move(err);
+		}
+		return;
+	}
+
+	if (job.kind == AssetKind::KvLoad) {
+		load_kv_json(job.image_url, out);
+		return;
+	}
+
+	if (job.kind == AssetKind::KvSave) {
+		save_kv_json(job.image_url, job.kv_values, out);
 		return;
 	}
 

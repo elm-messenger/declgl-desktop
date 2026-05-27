@@ -107,8 +107,9 @@ bool &loop_running_flag()
 
 // Set when a [QuitRegl] BackendCommand arrives. Checked at the top of
 // [drive_one_frame]; the loop exits before the next OCaml update so
-// the OCaml model never observes the post-quit frame. Cleared on
-// [enter_run_loop] entry to keep it idempotent across re-runs.
+// the OCaml model never observes the post-quit frame. Cleared after
+// the run loop exits so a QuitRegl later in the same startup batch as
+// StartRegl can still stop the just-created loop immediately.
 bool &quit_requested_flag()
 {
 	static bool q = false;
@@ -181,12 +182,12 @@ MousePoint mouse_to_virtual(float window_x, float window_y)
 // On shutdown, writes a CSV to declgl_profile.csv (or path from env).
 
 struct ProfileSample {
-	uint64_t frame;        // frame number (0-based)
-	uint64_t events_ns;    // SDL event pump
-	uint64_t update_ns;    // OCaml update callback
-	uint64_t view_ns;      // OCaml view + proto decode
-	uint64_t render_ns;    // C++ render
-	uint64_t swap_ns;      // GL swap
+	uint64_t frame; // frame number (0-based)
+	uint64_t events_ns; // SDL event pump
+	uint64_t update_ns; // OCaml update callback
+	uint64_t view_ns; // OCaml view + proto decode
+	uint64_t render_ns; // C++ render
+	uint64_t swap_ns; // GL swap
 };
 
 struct ProfilingState {
@@ -248,12 +249,9 @@ void profiling_shutdown()
 	uint64_t total_render = 0, total_swap = 0;
 
 	for (const auto &sample : s.samples) {
-		f << sample.frame << ','
-		  << sample.events_ns << ','
-		  << sample.update_ns << ','
-		  << sample.view_ns << ','
-		  << sample.render_ns << ','
-		  << sample.swap_ns << '\n';
+		f << sample.frame << ',' << sample.events_ns << ','
+		  << sample.update_ns << ',' << sample.view_ns << ','
+		  << sample.render_ns << ',' << sample.swap_ns << '\n';
 
 		total_events += sample.events_ns;
 		total_update += sample.update_ns;
@@ -266,16 +264,15 @@ void profiling_shutdown()
 
 	const size_t n = s.samples.size();
 	const double to_ms = 1.0 / 1e6;
-	DECLGL_LOG_INFO(
-		"profiling: wrote {} frames to '{}'\n"
-		"  avg per-frame (ms): events={:.3f} update={:.3f} "
-		"view={:.3f} render={:.3f} swap={:.3f}",
-		n, s.output_path,
-		static_cast<double>(total_events) / n * to_ms,
-		static_cast<double>(total_update) / n * to_ms,
-		static_cast<double>(total_view) / n * to_ms,
-		static_cast<double>(total_render) / n * to_ms,
-		static_cast<double>(total_swap) / n * to_ms);
+	DECLGL_LOG_INFO("profiling: wrote {} frames to '{}'\n"
+			"  avg per-frame (ms): events={:.3f} update={:.3f} "
+			"view={:.3f} render={:.3f} swap={:.3f}",
+			n, s.output_path,
+			static_cast<double>(total_events) / n * to_ms,
+			static_cast<double>(total_update) / n * to_ms,
+			static_cast<double>(total_view) / n * to_ms,
+			static_cast<double>(total_render) / n * to_ms,
+			static_cast<double>(total_swap) / n * to_ms);
 
 	// Reset for potential re-run
 	s.samples.clear();
@@ -517,7 +514,6 @@ void enter_run_loop()
 	const Uint64 start_ticks = bridge_start_ticks();
 
 	loop_running_flag() = true;
-	quit_requested_flag() = false;
 	profiling_init();
 	while (drive_one_frame(cb, window, start_ticks)) {
 		// Loop body intentionally empty — drive_one_frame does it all.
@@ -545,21 +541,31 @@ bool dispatch_batch(const mlregl::transport::backend::BackendCommandBatch &batch
 				if (engine()->init_window_and_gl(
 					    cmd.start_regl())) {
 					const auto &start = cmd.start_regl();
-					virtual_canvas_size().width = start.virt_width();
-					virtual_canvas_size().height = start.virt_height();
-					if (virtual_canvas_size().width <= 0.0 ||
-					    virtual_canvas_size().height <= 0.0) {
+					virtual_canvas_size().width =
+						start.virt_width();
+					virtual_canvas_size().height =
+						start.virt_height();
+					if (virtual_canvas_size().width <=
+						    0.0 ||
+					    virtual_canvas_size().height <=
+						    0.0) {
 						int ww = 0, wh = 0;
-						SDL_GetWindowSize(engine()->sdl_window(), &ww,
-								  &wh);
-						if (virtual_canvas_size().width <= 0.0)
-							virtual_canvas_size().width = ww;
-						if (virtual_canvas_size().height <= 0.0)
-							virtual_canvas_size().height = wh;
+						SDL_GetWindowSize(
+							engine()->sdl_window(),
+							&ww, &wh);
+						if (virtual_canvas_size()
+							    .width <= 0.0)
+							virtual_canvas_size()
+								.width = ww;
+						if (virtual_canvas_size()
+							    .height <= 0.0)
+							virtual_canvas_size()
+								.height = wh;
 					}
 					need_loop = true;
 				} else {
-					DECLGL_LOG_ERROR("init_window_and_gl failed");
+					DECLGL_LOG_ERROR(
+						"init_window_and_gl failed");
 					return false;
 				}
 			} else {

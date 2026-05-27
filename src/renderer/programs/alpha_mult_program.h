@@ -8,7 +8,10 @@ namespace declgl::programs
 
 class AlphaMultProgram : public FullscreenProgram {
     public:
-	std::string_view name() const override { return "alphamult"; }
+	std::string_view name() const override
+	{
+		return "alphamult";
+	}
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("effect", ShaderKind::VERT);
@@ -23,4 +26,3 @@ class AlphaMultProgram : public FullscreenProgram {
 };
 
 } // namespace declgl::programs
-

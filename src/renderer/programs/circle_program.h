@@ -11,7 +11,10 @@ namespace programs
 
 class CircleProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "circle"; }
+	std::string_view name() const override
+	{
+		return "circle";
+	}
 
 	std::string_view vert_source() const override
 	{
@@ -28,15 +31,17 @@ class CircleProgram : public ProgramBase {
 
     private:
 	// NDC quad [-1,1]^2 (matches JS circle convention)
-	static constexpr float kQuadPos[8] = {
-		-1.f, -1.f, 1.f, -1.f, 1.f, 1.f, -1.f, 1.f
-	};
+	static constexpr float kQuadPos[8] = { -1.f, -1.f, 1.f,	 -1.f,
+					       1.f,  1.f,  -1.f, 1.f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 };
 
 class RoundedRectProgram : public ProgramBase {
     public:
-	std::string_view name() const override { return "roundedRect"; }
+	std::string_view name() const override
+	{
+		return "roundedRect";
+	}
 
 	std::string_view vert_source() const override
 	{
@@ -52,9 +57,8 @@ class RoundedRectProgram : public ProgramBase {
 		     DrawState &out_state) override;
 
     private:
-	static constexpr float kQuadPos[8] = {
-		-1.f, -1.f, 1.f, -1.f, 1.f, 1.f, -1.f, 1.f
-	};
+	static constexpr float kQuadPos[8] = { -1.f, -1.f, 1.f,	 -1.f,
+					       1.f,  1.f,  -1.f, 1.f };
 	static constexpr uint32_t kQuadIndices[6] = { 0, 1, 2, 0, 2, 3 };
 };
 

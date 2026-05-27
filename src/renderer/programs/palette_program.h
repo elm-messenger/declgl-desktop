@@ -8,7 +8,10 @@ namespace declgl::programs
 
 class PaletteProgram : public FullscreenProgram {
     public:
-	std::string_view name() const override { return "palette"; }
+	std::string_view name() const override
+	{
+		return "palette";
+	}
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("effect", ShaderKind::VERT);
@@ -23,4 +26,3 @@ class PaletteProgram : public FullscreenProgram {
 };
 
 } // namespace declgl::programs
-

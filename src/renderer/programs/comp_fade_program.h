@@ -8,7 +8,10 @@ namespace declgl::programs
 
 class CompFadeProgram : public FullscreenProgram {
     public:
-	std::string_view name() const override { return "compFade"; }
+	std::string_view name() const override
+	{
+		return "compFade";
+	}
 	std::string_view vert_source() const override
 	{
 		return builtin_shader_source("effect", ShaderKind::VERT);
@@ -23,4 +26,3 @@ class CompFadeProgram : public FullscreenProgram {
 };
 
 } // namespace declgl::programs
-

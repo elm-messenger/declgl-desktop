@@ -17,4 +17,3 @@
 #include "renderer/programs/outline_program.h"
 #include "renderer/programs/palette_program.h"
 #include "renderer/programs/pixilation_program.h"
-

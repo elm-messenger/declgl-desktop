@@ -7,7 +7,8 @@ namespace declgl
 namespace programs
 {
 
-namespace {
+namespace
+{
 
 GLenum primitive_from_string(std::string_view s)
 {
@@ -32,7 +33,7 @@ GLenum primitive_from_string(std::string_view s)
 
 bool PolyProgram::prepare(const ProgramCallFields &fields,
 			  const RenderContext &ctx,
-			  const BuiltinTextures &/*builtin_textures*/,
+			  const BuiltinTextures & /*builtin_textures*/,
 			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -70,7 +71,8 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 	// Optional: indices from 'elem' field
 	const ProgramCallField *elem_f = find_field(fields, "elem");
 	bool has_indices = elem_f && elem_f->has_val() &&
-			   elem_f->val().kind_case() == Value::kNumberArrayValue;
+			   elem_f->val().kind_case() ==
+				   Value::kNumberArrayValue;
 
 	// Setup draw state
 	out_state.primitive = prim;
@@ -81,7 +83,8 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 
 	if (has_indices) {
 		// Indexed draw
-		const auto &elem_arr = elem_f->val().number_array_value().values();
+		const auto &elem_arr =
+			elem_f->val().number_array_value().values();
 		out_state.indexed = true;
 		out_state.count = static_cast<GLsizei>(elem_arr.size());
 		out_state.indices.reserve(elem_arr.size());
@@ -95,10 +98,10 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 	}
 
 	// Uniform: color
-	set_uniform_f4(
-		out_state, "color", static_cast<float>(col_arr[0]),
-		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
-		static_cast<float>(col_arr[3]));
+	set_uniform_f4(out_state, "color", static_cast<float>(col_arr[0]),
+		       static_cast<float>(col_arr[1]),
+		       static_cast<float>(col_arr[2]),
+		       static_cast<float>(col_arr[3]));
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);
@@ -108,7 +111,7 @@ bool PolyProgram::prepare(const ProgramCallFields &fields,
 
 bool QuadProgram::prepare(const ProgramCallFields &fields,
 			  const RenderContext &ctx,
-			  const BuiltinTextures &/*builtin_textures*/,
+			  const BuiltinTextures & /*builtin_textures*/,
 			  DrawState &out_state)
 {
 	using mlregl::transport::common::Value;
@@ -147,10 +150,10 @@ bool QuadProgram::prepare(const ProgramCallFields &fields,
 	out_state.static_indices = kQuadIndices;
 
 	// Uniform: color
-	set_uniform_f4(
-		out_state, "color", static_cast<float>(col_arr[0]),
-		static_cast<float>(col_arr[1]), static_cast<float>(col_arr[2]),
-		static_cast<float>(col_arr[3]));
+	set_uniform_f4(out_state, "color", static_cast<float>(col_arr[0]),
+		       static_cast<float>(col_arr[1]),
+		       static_cast<float>(col_arr[2]),
+		       static_cast<float>(col_arr[3]));
 
 	// Built-in uniforms
 	set_builtin_uniforms(ctx, out_state);

@@ -26,10 +26,9 @@ class TextboxProgram : public ProgramBase {
 		return builtin_shader_source("text", ShaderKind::FRAG);
 	}
 
-	bool
-	prepare(const ProgramCallFields &fields, const RenderContext &ctx,
-		const BuiltinTextures &builtin_textures,
-		DrawState &out_state) override;
+	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
+		     const BuiltinTextures &builtin_textures,
+		     DrawState &out_state) override;
 };
 
 } // namespace programs

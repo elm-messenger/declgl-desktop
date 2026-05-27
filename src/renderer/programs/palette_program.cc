@@ -3,8 +3,8 @@
 namespace declgl::programs
 {
 
-bool PaletteProgram::prepare(const ProgramCallFields &/*fields*/,
-			     const RenderContext &/*ctx*/,
+bool PaletteProgram::prepare(const ProgramCallFields & /*fields*/,
+			     const RenderContext & /*ctx*/,
 			     const BuiltinTextures &builtin_textures,
 			     DrawState &out_state)
 {
@@ -12,11 +12,10 @@ bool PaletteProgram::prepare(const ProgramCallFields &/*fields*/,
 
 	const GLuint tex = builtin_textures.tex ? builtin_textures.tex :
 			   builtin_textures.fbo ? builtin_textures.fbo :
-						 builtin_textures.texture;
+						  builtin_textures.texture;
 	if (tex)
 		set_uniform_tex(out_state, "tex", tex);
 	return true;
 }
 
 } // namespace declgl::programs
-

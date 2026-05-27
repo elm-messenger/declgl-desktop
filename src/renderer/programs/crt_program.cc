@@ -18,4 +18,3 @@ bool CrtProgram::prepare(const ProgramCallFields &fields,
 }
 
 } // namespace declgl::programs
-
