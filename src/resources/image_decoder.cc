@@ -81,7 +81,12 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
 	}
 
 	for (int row = 0; row < ch; ++row) {
-		const uint8_t *src = raw + ((sy + row) * w + sx) * 4;
+		// JS cropped texture loading uses createImageBitmap(...,
+		// { imageOrientation: "flipY" }) before uploading the sub-image. Mirror
+		// that here so cropped texture resources have the same orientation as the
+		// JS backend.
+		const int src_row = sy + (ch - 1 - row);
+		const uint8_t *src = raw + (src_row * w + sx) * 4;
 		uint8_t *dst = buf + (row * cw) * 4;
 		std::memcpy(dst, src, static_cast<std::size_t>(cw) * 4);
 	}

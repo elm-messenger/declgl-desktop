@@ -331,6 +331,8 @@ bool sdl_event_to_pb(const SDL_Event &ev,
 		m.set_button(static_cast<uint32_t>(ev.button.button));
 		m.set_x(p.x);
 		m.set_y(p.y);
+		DECLGL_LOG_TRACE("mouse_down: button={} virt=({:.2f},{:.2f})",
+				 ev.button.button, p.x, p.y);
 		*out->mutable_mouse_down() = m;
 		return true;
 	}
@@ -340,6 +342,8 @@ bool sdl_event_to_pb(const SDL_Event &ev,
 		m.set_button(static_cast<uint32_t>(ev.button.button));
 		m.set_x(p.x);
 		m.set_y(p.y);
+		DECLGL_LOG_TRACE("mouse_up: button={} virt=({:.2f},{:.2f})",
+				 ev.button.button, p.x, p.y);
 		*out->mutable_mouse_up() = m;
 		return true;
 	}
@@ -355,6 +359,7 @@ bool sdl_event_to_pb(const SDL_Event &ev,
 		KeyboardEvent k;
 		const char *name = SDL_GetKeyName(ev.key.key);
 		k.set_code(name ? name : "");
+		DECLGL_LOG_TRACE("key_down: {}", name ? name : "");
 		*out->mutable_key_down() = k;
 		return true;
 	}
@@ -362,6 +367,7 @@ bool sdl_event_to_pb(const SDL_Event &ev,
 		KeyboardEvent k;
 		const char *name = SDL_GetKeyName(ev.key.key);
 		k.set_code(name ? name : "");
+		DECLGL_LOG_TRACE("key_up: {}", name ? name : "");
 		*out->mutable_key_up() = k;
 		return true;
 	}

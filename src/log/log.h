@@ -31,6 +31,11 @@ quill::Logger *logger();
 
 // Thin macros over quill's LOG_* that supply the shared logger.
 // Format strings use quill's native fmt syntax ("{}" not "%d").
+// Level order (lowest → highest): TRACE < DEBUG < INFO < WARN < ERROR.
+// Set DECLGL_LOG_LEVEL=trace (or =debug) at runtime to see them.
+#define DECLGL_LOG_TRACE(...)                                                  \
+	LOG_TRACE_L1(::declgl::log::logger(), __VA_ARGS__)
+#define DECLGL_LOG_DEBUG(...) LOG_DEBUG(::declgl::log::logger(), __VA_ARGS__)
 #define DECLGL_LOG_INFO(...) LOG_INFO(::declgl::log::logger(), __VA_ARGS__)
 #define DECLGL_LOG_WARN(...) LOG_WARNING(::declgl::log::logger(), __VA_ARGS__)
 #define DECLGL_LOG_ERROR(...) LOG_ERROR(::declgl::log::logger(), __VA_ARGS__)
