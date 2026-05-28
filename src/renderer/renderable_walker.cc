@@ -91,9 +91,17 @@ void RenderableWalker::render(const mlregl::transport::render::Renderable &r,
 		return;
 
 	// Restore the entry framebuffer and blit the result palette via the
-	// [palette] passthrough program.
+	// [palette] passthrough program into the letterbox/pillarbox fitted
+	// rect. The surrounding pixels keep the engine's per-frame black
+	// clear, producing the bars. Falls back to the full window when no
+	// fit rect was computed yet (e.g. before StartRegl set view_*).
 	glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prev_fbo));
-	glViewport(0, 0, ctx.pixel_w, ctx.pixel_h);
+	if (ctx.fit_w > 0 && ctx.fit_h > 0) {
+		glViewport(ctx.fit_off_x, ctx.fit_off_y, ctx.fit_w,
+			   ctx.fit_h);
+	} else {
+		glViewport(0, 0, ctx.pixel_w, ctx.pixel_h);
+	}
 	ProgramBase *pal = decl_programs_.get("palette");
 	if (pal) {
 		BuiltinTextures tex;

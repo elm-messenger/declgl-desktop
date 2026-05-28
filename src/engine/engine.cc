@@ -278,6 +278,12 @@ bool Engine::init_window_and_gl(
 	SDL_GetWindowSizeInPixels(window_, &pw, &ph);
 	render_ctx_->pixel_w = pw;
 	render_ctx_->pixel_h = ph;
+	// Letterbox/pillarbox: fit the virtual canvas inside the window
+	// while preserving aspect. Bars (if any) come from the per-frame
+	// black clear of the system framebuffer.
+	compute_fit_rect(pw, ph, render_ctx_->view_w, render_ctx_->view_h,
+			 render_ctx_->fit_off_x, render_ctx_->fit_off_y,
+			 render_ctx_->fit_w, render_ctx_->fit_h);
 	glViewport(0, 0, pw, ph);
 
 	// Provision the FBO pool. JS ml-regl seeds at `fbo_num` and
@@ -292,10 +298,19 @@ bool Engine::init_window_and_gl(
 			start.fbo_num() > 0 ?
 				static_cast<int>(start.fbo_num()) :
 				5;
-		if (!fbos_->init(fbo_count, pw, ph)) {
+		// Palettes track the fitted rect (not the full window)
+		// so the [palette] passthrough samples 1:1 with the final
+		// blit and no double-stretching occurs.
+		const int fbo_w = render_ctx_->fit_w > 0 ?
+					  render_ctx_->fit_w :
+					  pw;
+		const int fbo_h = render_ctx_->fit_h > 0 ?
+					  render_ctx_->fit_h :
+					  ph;
+		if (!fbos_->init(fbo_count, fbo_w, fbo_h)) {
 			DECLGL_LOG_ERROR(
 				"FboPool::init failed (count={} size={}x{})",
-				fbo_count, pw, ph);
+				fbo_count, fbo_w, fbo_h);
 			shutdown();
 			return false;
 		}
@@ -925,18 +940,32 @@ void Engine::render(const mlregl::transport::render::Renderable &tree)
 	drain_ready_assets(/*max_items=*/4);
 
 	// Update pixel viewport in case the window was resized. Resize the
-	// FBO pool to match — we always keep palettes the size of the
-	// drawing buffer so [palette] / [defaultCompositor] / [compFade]
-	// sample 1:1 when blitting to the system framebuffer.
+	// FBO pool to match the letterbox/pillarbox fitted rect — palettes
+	// track the *content* area (not the full window) so the [palette]
+	// passthrough samples 1:1 when blitted into the inner viewport, and
+	// the surrounding bar pixels remain whatever the per-frame clear
+	// painted (black, see below).
 	if (window_) {
 		int pw = 0, ph = 0;
 		SDL_GetWindowSizeInPixels(window_, &pw, &ph);
 		if (pw != render_ctx_->pixel_w || ph != render_ctx_->pixel_h) {
 			render_ctx_->pixel_w = pw;
 			render_ctx_->pixel_h = ph;
+			compute_fit_rect(pw, ph, render_ctx_->view_w,
+					 render_ctx_->view_h,
+					 render_ctx_->fit_off_x,
+					 render_ctx_->fit_off_y,
+					 render_ctx_->fit_w,
+					 render_ctx_->fit_h);
+			// Reset viewport to the full window. The walker
+			// overrides it to the fitted rect just before the
+			// final palette blit, so the bar pixels keep
+			// whatever the upcoming glClear paints.
 			glViewport(0, 0, pw, ph);
-			if (fbos_)
-				fbos_->resize_all(pw, ph);
+			if (fbos_ && render_ctx_->fit_w > 0 &&
+			    render_ctx_->fit_h > 0)
+				fbos_->resize_all(render_ctx_->fit_w,
+						  render_ctx_->fit_h);
 		}
 	}
 

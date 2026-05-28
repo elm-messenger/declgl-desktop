@@ -48,6 +48,7 @@
 
 #include "engine/engine.h"
 #include "log/log.h"
+#include "renderer/render_context.h"
 #include "transport_backend.pb.h"
 #include "transport_render.pb.h"
 
@@ -163,10 +164,24 @@ MousePoint mouse_to_virtual(float window_x, float window_y)
 	if (window_w <= 0 || window_h <= 0)
 		return out;
 
-	out.x = static_cast<double>(window_x) * virt.width /
-		static_cast<double>(window_w);
-	out.y = static_cast<double>(window_y) * virt.height /
-		static_cast<double>(window_h);
+	// Mirror the renderer's letterbox/pillarbox fit so the OCaml app sees
+	// the same virtual coords no matter the window aspect. SDL mouse
+	// events are in logical units (matching SDL_GetWindowSize), so we
+	// recompute the fit here in logical units rather than reusing the
+	// engine's pixel-space fit_rect (the aspect is identical, but the
+	// magnitudes differ on hi-DPI displays). Clicks landing on a bar
+	// produce out-of-range coords; OCaml is expected to bounds-check
+	// just like the JS backend.
+	int off_x = 0, off_y = 0, fit_w = 0, fit_h = 0;
+	declgl::compute_fit_rect(window_w, window_h, virt.width, virt.height,
+				 off_x, off_y, fit_w, fit_h);
+	if (fit_w <= 0 || fit_h <= 0)
+		return out;
+
+	out.x = (static_cast<double>(window_x) - off_x) * virt.width /
+		static_cast<double>(fit_w);
+	out.y = (static_cast<double>(window_y) - off_y) * virt.height /
+		static_cast<double>(fit_h);
 	return out;
 }
 
