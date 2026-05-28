@@ -169,19 +169,26 @@ MousePoint mouse_to_virtual(float window_x, float window_y)
 	// events are in logical units (matching SDL_GetWindowSize), so we
 	// recompute the fit here in logical units rather than reusing the
 	// engine's pixel-space fit_rect (the aspect is identical, but the
-	// magnitudes differ on hi-DPI displays). Clicks landing on a bar
-	// produce out-of-range coords; OCaml is expected to bounds-check
-	// just like the JS backend.
+	// magnitudes differ on hi-DPI displays). Coords are clamped to
+	// [0, virt_w/h] so clicks landing on a bar still report a valid
+	// in-canvas position (the nearest edge) rather than negatives or
+	// values past the virtual size.
 	int off_x = 0, off_y = 0, fit_w = 0, fit_h = 0;
 	declgl::compute_fit_rect(window_w, window_h, virt.width, virt.height,
 				 off_x, off_y, fit_w, fit_h);
 	if (fit_w <= 0 || fit_h <= 0)
 		return out;
 
-	out.x = (static_cast<double>(window_x) - off_x) * virt.width /
-		static_cast<double>(fit_w);
-	out.y = (static_cast<double>(window_y) - off_y) * virt.height /
-		static_cast<double>(fit_h);
+	double vx = (static_cast<double>(window_x) - off_x) * virt.width /
+		    static_cast<double>(fit_w);
+	double vy = (static_cast<double>(window_y) - off_y) * virt.height /
+		    static_cast<double>(fit_h);
+	if (vx < 0.0) vx = 0.0;
+	if (vy < 0.0) vy = 0.0;
+	if (vx > virt.width) vx = virt.width;
+	if (vy > virt.height) vy = virt.height;
+	out.x = vx;
+	out.y = vy;
 	return out;
 }
 
