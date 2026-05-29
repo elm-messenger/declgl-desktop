@@ -53,6 +53,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -199,6 +200,15 @@ class AssetLoader {
     private:
 	void worker_main();
 	void process(DecodeJob &job, ReadyAsset &out);
+
+	// Asset paths from the wire are confined to this root (which is
+	// SDL_GetBasePath() — the directory containing the running
+	// executable). Captured once at construction; never mutated so
+	// the worker thread reads it without synchronization. Empty if
+	// SDL couldn't determine the base path; in that case the worker
+	// rejects every relative-path request rather than silently
+	// reading the cwd.
+	std::filesystem::path asset_root_;
 
 	std::thread worker_;
 	std::mutex mu_;

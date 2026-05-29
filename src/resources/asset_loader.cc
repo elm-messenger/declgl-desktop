@@ -5,9 +5,13 @@
 #include "resources/asset_loader.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
+#include <optional>
+#include <system_error>
 #include <utility>
 
+#include <SDL3/SDL.h>
 #include <nlohmann/json.hpp>
 
 #include "audio/audio_decoder.h"
@@ -19,6 +23,20 @@ namespace declgl
 
 AssetLoader::AssetLoader()
 {
+	// Snapshot the asset root once at construction so the worker
+	// thread can resolve paths without grabbing SDL state itself.
+	// SDL_GetBasePath returns the directory containing the running
+	// executable (with a trailing separator); the buffer is owned
+	// by SDL and lives for the lifetime of the process, so we just
+	// copy it into our path. We canonicalize so the
+	// std::filesystem::relative() containment check below is
+	// symbol-comparable across the two paths it sees.
+	if (const char *base = SDL_GetBasePath()) {
+		std::error_code ec;
+		std::filesystem::path p(base);
+		auto canon = std::filesystem::weakly_canonical(p, ec);
+		asset_root_ = ec ? p : canon;
+	}
 	worker_ = std::thread([this] { worker_main(); });
 }
 
@@ -213,6 +231,63 @@ void save_kv_json(const std::string &path,
 	}
 }
 
+// Resolve [user_path] under [root] and return the absolute path. On
+// policy rejection (empty input, absolute, traversal escapes, missing
+// root) returns std::nullopt and writes a "path_rejected: <why>"
+// message to [err]; the caller surfaces that prefix on the wire so
+// clients can distinguish a policy denial from a regular I/O miss.
+//
+// We intentionally do NOT call std::filesystem::canonical (which
+// requires the file to exist) — failures should still be the result of
+// the subsequent fopen / decoder, not this resolver. weakly_canonical
+// gives us a stable form for the containment check that works whether
+// or not the target exists.
+std::optional<std::filesystem::path>
+resolve_under_root(const std::filesystem::path &root,
+		   const std::string &user_path,
+		   std::string &err)
+{
+	if (root.empty()) {
+		err = "path_rejected: asset root unavailable";
+		return std::nullopt;
+	}
+	if (user_path.empty()) {
+		err = "path_rejected: empty path";
+		return std::nullopt;
+	}
+	std::filesystem::path raw(user_path);
+	if (raw.is_absolute()) {
+		err = "path_rejected: absolute path '" + user_path + "'";
+		return std::nullopt;
+	}
+
+	std::error_code ec;
+	auto resolved = std::filesystem::weakly_canonical(root / raw, ec);
+	if (ec) {
+		err = "path_rejected: weakly_canonical failed for '" +
+		      user_path + "': " + ec.message();
+		return std::nullopt;
+	}
+
+	auto rel = std::filesystem::relative(resolved, root, ec);
+	if (ec) {
+		err = "path_rejected: relative() failed for '" + user_path +
+		      "': " + ec.message();
+		return std::nullopt;
+	}
+	// `relative()` returns a path starting with ".." iff [resolved]
+	// is outside [root]. An empty result means the resolved path
+	// equals the root itself, which we also treat as a rejection
+	// (you can't load the directory).
+	const std::string rel_str = rel.generic_string();
+	if (rel_str.empty() || rel_str == "." ||
+	    rel_str.compare(0, 2, "..") == 0) {
+		err = "path_rejected: '" + user_path + "' escapes asset root";
+		return std::nullopt;
+	}
+	return resolved;
+}
+
 } // namespace
 
 void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
@@ -225,7 +300,15 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 	out.premultiply_alpha = job.premultiply_alpha;
 
 	if (job.kind == AssetKind::Texture) {
-		DecodedImage img = decode_image_file(job.image_url, job.crop);
+		std::string err;
+		auto resolved =
+			resolve_under_root(asset_root_, job.image_url, err);
+		if (!resolved) {
+			out.error = std::move(err);
+			return;
+		}
+		DecodedImage img =
+			decode_image_file(resolved->string(), job.crop);
 		if (!img.ok()) {
 			out.error = "decode_image_file";
 			return;
@@ -245,10 +328,18 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 		// docstring). We rely on the engine to set
 		// [audio_sample_rate] before enqueueing — if it didn't,
 		// the decoder fails fast with a clear message.
+		std::string perr;
+		auto resolved =
+			resolve_under_root(asset_root_, job.image_url, perr);
+		if (!resolved) {
+			out.error = std::move(perr);
+			return;
+		}
 		AudioDecodeError err = AudioDecodeError::None;
 		std::string err_msg;
-		out.audio = decode_audio_file(
-			job.image_url, job.audio_sample_rate, err, err_msg);
+		out.audio = decode_audio_file(resolved->string(),
+					      job.audio_sample_rate, err,
+					      err_msg);
 		if (!out.audio.ok()) {
 			out.audio_error = err;
 			out.error = err_msg.empty() ? "decode_audio_file" :
@@ -259,14 +350,24 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 	}
 
 	if (job.kind == AssetKind::File) {
+		std::string perr;
+		auto resolved =
+			resolve_under_root(asset_root_, job.image_url, perr);
+		if (!resolved) {
+			out.error = std::move(perr);
+			return;
+		}
 		std::string err;
-		if (!slurp_file(job.image_url, out.file_data, err)) {
+		if (!slurp_file(resolved->string(), out.file_data, err)) {
 			out.error = std::move(err);
 		}
 		return;
 	}
 
 	if (job.kind == AssetKind::KvLoad) {
+		// KV paths are produced by the engine via SDL_GetPrefPath
+		// and are intentionally outside the asset root, so they
+		// bypass [resolve_under_root].
 		load_kv_json(job.image_url, out);
 		return;
 	}
@@ -282,10 +383,18 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 	// refactor can't silently corrupt SDF data.
 	out.premultiply_alpha = false;
 
+	std::string json_err;
+	auto json_resolved =
+		resolve_under_root(asset_root_, job.json_url, json_err);
+	if (!json_resolved) {
+		out.error = std::move(json_err);
+		return;
+	}
+
 	std::string json_bytes;
 	{
 		std::string err;
-		if (!slurp_file(job.json_url, json_bytes, err)) {
+		if (!slurp_file(json_resolved->string(), json_bytes, err)) {
 			out.error = std::move(err);
 			return;
 		}
@@ -297,7 +406,15 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 		return;
 	}
 
-	DecodedImage img = decode_image_file(job.image_url, ImageCrop{});
+	std::string img_err;
+	auto img_resolved =
+		resolve_under_root(asset_root_, job.image_url, img_err);
+	if (!img_resolved) {
+		out.error = std::move(img_err);
+		return;
+	}
+	DecodedImage img =
+		decode_image_file(img_resolved->string(), ImageCrop{});
 	if (!img.ok()) {
 		out.error = "decode_image_file(atlas)";
 		return;

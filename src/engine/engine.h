@@ -132,7 +132,11 @@ class Engine {
 
 	SDL_Window *window_ = nullptr;
 	SDL_GLContext gl_ctx_ = nullptr;
-	std::string asset_root_;
+	// App identifier from StartRegl.app_name. Used to scope
+	// SDL_GetPrefPath for KV storage so different apps don't
+	// collide on the same per-user data directory. Empty until
+	// StartRegl arrives; treated as "declgl" by [kv_store_path].
+	std::string app_name_;
 	Uint64 start_ticks_ = 0;
 	EventSink event_sink_;
 	bool kv_load_started_ = false;

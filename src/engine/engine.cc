@@ -147,6 +147,13 @@ bool Engine::init_window_and_gl(
 		return true;
 	}
 
+	// Capture the app identifier so [kv_store_path] can scope
+	// SDL_GetPrefPath per-app. We snapshot it before any I/O so a
+	// SaveValue/ReadValue arriving in the same startup batch as
+	// StartRegl already sees the right path. Empty falls back to
+	// "declgl" inside [kv_store_path].
+	app_name_ = start.app_name();
+
 	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS)) {
 		DECLGL_LOG_ERROR("SDL_Init failed: {}", SDL_GetError());
 		return false;
@@ -356,7 +363,15 @@ bool Engine::init_window_and_gl(
 
 std::string Engine::kv_store_path() const
 {
-	char *pref = SDL_GetPrefPath("ml-regl", "declgl");
+	// SDL_GetPrefPath wants (org, app); we put the app id in the org
+	// slot and an empty app slot, which yields ~/Library/Application
+	// Support/<app>/ on macOS, %APPDATA%\<app>\ on Windows, etc. An
+	// empty StartRegl.app_name falls back to "declgl" so legacy
+	// callers that haven't set the new field still get a stable
+	// per-user store rather than the cwd.
+	const std::string app =
+		app_name_.empty() ? std::string("declgl") : app_name_;
+	char *pref = SDL_GetPrefPath(app.c_str(), "");
 	if (pref) {
 		std::string path(pref);
 		SDL_free(pref);
@@ -838,10 +853,20 @@ void Engine::drain_ready_assets(std::size_t max_items)
 					 r.error.empty() ? "decode/parse" :
 							   r.error);
 			BackendEvent ev;
+			// Surface the worker's [error] string verbatim so a
+			// "path_rejected: ..." prefix from the resolver is
+			// visible to clients (and so callers can pattern-match
+			// on it). Empty error -> generic "decode/parse".
+			const std::string reason =
+				r.error.empty() ? "decode/parse" : r.error;
 			if (r.kind == AssetKind::Texture) {
-				ev.mutable_texture_loadfail()->set_name(r.name);
+				auto *fail = ev.mutable_texture_loadfail();
+				fail->set_name(r.name);
+				fail->set_reason(reason);
 			} else {
-				ev.mutable_font_loadfail()->set_name(r.name);
+				auto *fail = ev.mutable_font_loadfail();
+				fail->set_name(r.name);
+				fail->set_reason(reason);
 			}
 			ship_event(ev);
 			continue;
@@ -873,7 +898,9 @@ void Engine::drain_ready_assets(std::size_t max_items)
 					"async load '{}': upload failed",
 					r.name);
 				BackendEvent ev;
-				ev.mutable_texture_loadfail()->set_name(r.name);
+				auto *fail = ev.mutable_texture_loadfail();
+				fail->set_name(r.name);
+				fail->set_reason("upload failed");
 				ship_event(ev);
 				continue;
 			}
@@ -906,7 +933,9 @@ void Engine::drain_ready_assets(std::size_t max_items)
 				"async load '{}': font atlas upload failed",
 				r.name);
 			BackendEvent ev;
-			ev.mutable_font_loadfail()->set_name(r.name);
+			auto *fail = ev.mutable_font_loadfail();
+			fail->set_name(r.name);
+			fail->set_reason("font atlas upload failed");
 			ship_event(ev);
 			continue;
 		}
