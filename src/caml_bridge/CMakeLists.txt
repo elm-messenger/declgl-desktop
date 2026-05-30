@@ -46,6 +46,7 @@ target_include_directories(declgl_caml_bridge
 
 target_link_libraries(declgl_caml_bridge
     PUBLIC
+        declgl_runtime
         declgl_engine
         declgl_proto
         declgl_log

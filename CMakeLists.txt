@@ -29,6 +29,15 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+# ----------------------------------------------------------------------------
+# Build options
+# ----------------------------------------------------------------------------
+# When ON (the default) we build the OCaml ↔ C++ bridge object library
+# and bundle it into libdeclgl.a. Configure with -DBUILD_OCAML_BRIDGE=OFF
+# to opt out — useful for non-OCaml hosts (e.g. the future declgl-player
+# gRPC executable) and on machines without ocamlc in PATH.
+option(BUILD_OCAML_BRIDGE "Build the OCaml ↔ C++ bridge target" ON)
+
 # Common warning flags. Kept simple, no fancy lint options yet.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
@@ -71,7 +80,10 @@ add_subdirectory(src/resources)
 add_subdirectory(src/audio)
 add_subdirectory(src/renderer)
 add_subdirectory(src/engine)
-add_subdirectory(src/caml_bridge)
+add_subdirectory(src/runtime)
+if(BUILD_OCAML_BRIDGE)
+    add_subdirectory(src/caml_bridge)
+endif()
 
 # ----------------------------------------------------------------------------
 # libdeclgl.a — a single static archive that the OCaml dune side picks up
@@ -88,7 +100,8 @@ add_subdirectory(src/caml_bridge)
 # libdeclgl.a would balloon the archive and is brittle across vcpkg layouts.
 # ----------------------------------------------------------------------------
 add_library(declgl STATIC
-    $<TARGET_OBJECTS:declgl_caml_bridge>
+    $<$<BOOL:${BUILD_OCAML_BRIDGE}>:$<TARGET_OBJECTS:declgl_caml_bridge>>
+    $<TARGET_OBJECTS:declgl_runtime>
     $<TARGET_OBJECTS:declgl_engine>
     $<TARGET_OBJECTS:declgl_renderer>
     $<TARGET_OBJECTS:declgl_gpu>
