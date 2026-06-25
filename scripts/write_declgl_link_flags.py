@@ -133,7 +133,7 @@ def render_lines(
             append_unique(flags, ["-subsystem windows"])
         append_unique(flags, ["-lasmrun"])
     
-    slibs = pkg_config_libs(vcpkg_lib, "protobuf-lite", "SDL3")
+    slibs = pkg_config_libs(vcpkg_lib, "protobuf-lite", "sdl3")
     append_unique(flags, slibs)
     if is_apple:
         append_unique(flags, framework_flags())
