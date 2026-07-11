@@ -55,13 +55,11 @@ void AssetLoader::enqueue(DecodeJob job)
 }
 
 std::size_t AssetLoader::drain_ready(std::vector<ReadyAsset> &out,
-				     std::size_t max_items)
+					     std::size_t max_items)
 {
-	if (max_items == 0)
-		return 0;
 	std::size_t moved = 0;
 	std::lock_guard<std::mutex> lk(mu_);
-	while (moved < max_items && !ready_queue_.empty()) {
+	while ((max_items == 0 || moved < max_items) && !ready_queue_.empty()) {
 		out.push_back(std::move(ready_queue_.front()));
 		ready_queue_.pop_front();
 		++moved;

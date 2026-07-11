@@ -170,7 +170,8 @@ class AssetLoader {
 	// idle. Safe to call from the GL thread.
 	void enqueue(DecodeJob job);
 
-	// Pop up to [max_items] ready assets in FIFO order. Returns the
+	// Pop up to [max_items] ready assets in FIFO order; 0 means unlimited.
+	// Returns the
 	// number actually moved into [out]. Bounded to avoid one-frame
 	// hitches when many large assets land at once.
 	std::size_t drain_ready(std::vector<ReadyAsset> &out,
