@@ -39,10 +39,34 @@ source ~/.zshrc
 
 ### Linux
 
+For apt-based distributions, the one-command setup and build path is:
+
 ```bash
-sudo apt-get install -y build-essential cmake ninja-build pkg-config curl zip unzip tar git \
-                        libgl1-mesa-dev libxkbcommon-dev libwayland-dev libxrandr-dev \
-                        libxinerama-dev libxcursor-dev libxi-dev libdbus-1-dev
+./scripts/build_linux.sh
+```
+
+The script installs the
+system packages needed by vcpkg and SDL3's Linux source build, bootstraps vcpkg
+at `$VCPKG_ROOT` or `~/vcpkg`, then runs the `linux-release` CMake preset. To build
+another Linux preset:
+
+```bash
+DECLGL_LINUX_PRESET=linux-debug ./scripts/build_linux.sh
+```
+
+Manual setup uses the same package set:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+    build-essential ca-certificates cmake autoconf autoconf-archive automake \
+    curl git libtool ninja-build pkg-config python3 tar unzip zip ocaml-nox \
+    libasound2-dev libdbus-1-dev libdrm-dev libegl1-mesa-dev libgbm-dev \
+    libgl1-mesa-dev libgles2-mesa-dev libibus-1.0-dev \
+    libpipewire-0.3-dev libpulse-dev libsndio-dev libudev-dev \
+    libwayland-dev libx11-dev libxcursor-dev libxext-dev libxfixes-dev \
+    libxft-dev libxi-dev libxinerama-dev libxkbcommon-dev libxrandr-dev libxss-dev \
+    libxtst-dev wayland-protocols libdecor-0-dev
 
 git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 cd ~/vcpkg && ./bootstrap-vcpkg.sh -disableMetrics
