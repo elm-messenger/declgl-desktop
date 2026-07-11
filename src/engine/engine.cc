@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <limits>
 
 #include "audio/audio_engine.h"
 #include "gpu/fbo_pool.h"
@@ -956,7 +957,8 @@ void Engine::drain_ready_assets(std::size_t max_items)
 	}
 }
 
-void Engine::render(const mlregl::transport::render::Renderable &tree)
+void Engine::render(const mlregl::transport::render::Renderable &tree,
+		    std::size_t max_assets_per_frame)
 {
 	if (!walker_ || !render_ctx_)
 		return;
@@ -964,9 +966,12 @@ void Engine::render(const mlregl::transport::render::Renderable &tree)
 	// Pop and finish up to N decoded assets per frame. The cap keeps a
 	// burst of completed loads from spiking frame time. 4 is generous
 	// for typical workloads (a single PNG upload is ~µs to a couple of
-	// ms even for a few-MB texture); raise if you ever see assets
-	// backing up in the queue.
-	drain_ready_assets(/*max_items=*/4);
+	// ms even for a few-MB texture); set to 0 to drain every ready asset.
+	const std::size_t drain_max =
+		max_assets_per_frame == 0 ?
+			std::numeric_limits<std::size_t>::max() :
+			max_assets_per_frame;
+	drain_ready_assets(drain_max);
 
 	// Update pixel viewport in case the window was resized. Resize the
 	// FBO pool to match the letterbox/pillarbox fitted rect — palettes

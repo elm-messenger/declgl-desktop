@@ -176,6 +176,10 @@ struct Runtime::Impl {
 	// frame budget is consumed.
 	double pacing_interval_ms_ = -1.0;
 
+	// Maximum ready asset jobs to finish at the start of each frame.
+	// 0 means unlimited.
+	std::size_t max_assets_per_frame_ = 4;
+
 	// Mouse events from SDL arrive in window coordinates. Host code,
 	// however, works in the same logical coordinate system used by
 	// renderables: the StartRegl virtual canvas. Keep that virtual size
@@ -428,7 +432,7 @@ bool Runtime::Impl::drive_one_frame()
 				    static_cast<int>(view_bytes->size()))) {
 				const Uint64 t_view_end = SDL_GetTicksNS();
 				sample.view_ns = t_view_end - t2;
-				engine_->render(r);
+				engine_->render(r, max_assets_per_frame_);
 				const Uint64 t_render_end = SDL_GetTicksNS();
 				sample.render_ns = t_render_end - t_view_end;
 			} else {
@@ -580,6 +584,15 @@ bool Runtime::Impl::dispatch_batch(
 						"config_regl window.resizable={}",
 						wc.resizable() ? 1 : 0);
 				}
+				break;
+			}
+			case ReglConfig::kMaxAssetsPerFrame: {
+				max_assets_per_frame_ =
+					static_cast<std::size_t>(
+						cr.max_assets_per_frame());
+				DECLGL_LOG_INFO(
+					"config_regl max_assets_per_frame={}",
+					max_assets_per_frame_);
 				break;
 			}
 			case ReglConfig::CONFIG_NOT_SET:

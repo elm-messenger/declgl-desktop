@@ -88,8 +88,10 @@ class Engine {
 
 	// Walk a Renderable tree and emit the corresponding GL draw calls
 	// onto the currently-bound framebuffer. Per-frame entry point for
-	// the bridge.
-	void render(const mlregl::transport::render::Renderable &tree);
+	// the bridge. [max_assets_per_frame] bounds ready asset jobs drained before
+	// drawing; 0 means unlimited.
+	void render(const mlregl::transport::render::Renderable &tree,
+		    std::size_t max_assets_per_frame);
 
 	void shutdown();
 
