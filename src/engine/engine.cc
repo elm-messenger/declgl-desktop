@@ -158,6 +158,7 @@ bool Engine::init_window_and_gl(
 		DECLGL_LOG_ERROR("SDL_Init failed: {}", SDL_GetError());
 		return false;
 	}
+	sdl_initialized_ = true;
 
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
@@ -199,6 +200,7 @@ bool Engine::init_window_and_gl(
 	window_ = SDL_CreateWindow("declgl", w, h, wflags);
 	if (!window_) {
 		DECLGL_LOG_ERROR("SDL_CreateWindow failed: {}", SDL_GetError());
+		sdl_initialized_ = false;
 		SDL_Quit();
 		return false;
 	}
@@ -209,6 +211,7 @@ bool Engine::init_window_and_gl(
 				 SDL_GetError());
 		SDL_DestroyWindow(window_);
 		window_ = nullptr;
+		sdl_initialized_ = false;
 		SDL_Quit();
 		return false;
 	}
@@ -220,6 +223,7 @@ bool Engine::init_window_and_gl(
 		gl_ctx_ = nullptr;
 		SDL_DestroyWindow(window_);
 		window_ = nullptr;
+		sdl_initialized_ = false;
 		SDL_Quit();
 		return false;
 	}
@@ -727,7 +731,10 @@ void Engine::shutdown()
 		SDL_DestroyWindow(window_);
 		window_ = nullptr;
 	}
-	SDL_Quit();
+	if (sdl_initialized_) {
+		sdl_initialized_ = false;
+		SDL_Quit();
+	}
 
 	// Drain log records last so any teardown messages are visible.
 	declgl::log::shutdown();

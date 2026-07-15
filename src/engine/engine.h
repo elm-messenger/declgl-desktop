@@ -134,6 +134,7 @@ class Engine {
 
 	SDL_Window *window_ = nullptr;
 	SDL_GLContext gl_ctx_ = nullptr;
+	bool sdl_initialized_ = false;
 	// App identifier from StartRegl.app_name. Used to scope
 	// SDL_GetPrefPath for KV storage so different apps don't
 	// collide on the same per-user data directory. Empty until

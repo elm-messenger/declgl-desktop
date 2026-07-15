@@ -195,6 +195,7 @@ struct Runtime::Impl {
 
 	void ensure_engine();
 	void install_engine_sinks();
+	void reset_engine();
 
 	MousePoint mouse_to_virtual(float window_x, float window_y);
 	bool sdl_event_to_pb(const SDL_Event &ev,
@@ -233,6 +234,12 @@ void Runtime::Impl::install_engine_sinks()
 		hooks_.on_audio_event(bytes, len);
 	});
 	engine_sinks_installed_ = true;
+}
+
+void Runtime::Impl::reset_engine()
+{
+	engine_.reset();
+	engine_sinks_installed_ = false;
 }
 
 MousePoint Runtime::Impl::mouse_to_virtual(float window_x, float window_y)
@@ -506,6 +513,7 @@ bool Runtime::Impl::dispatch_batch(
 				} else {
 					DECLGL_LOG_ERROR(
 						"init_window_and_gl failed");
+					reset_engine();
 					return false;
 				}
 			} else {
