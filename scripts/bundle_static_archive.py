@@ -65,7 +65,11 @@ def append_unique(paths: list[Path], path: Path) -> None:
 def extract_archive(ar: str, archive: Path, destination: Path) -> list[Path]:
     destination.mkdir(parents=True, exist_ok=True)
     subprocess.check_call([ar, "x", str(archive)], cwd=destination)
-    return sorted(destination.iterdir())
+    return sorted(
+        path
+        for path in destination.iterdir()
+        if path.is_file() and not path.name.startswith("__.SYMDEF")
+    )
 
 
 def main() -> int:
