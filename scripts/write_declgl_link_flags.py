@@ -49,6 +49,26 @@ def pkg_config_libs(vcpkg_lib: Path, *packages: str) -> list[str]:
         if flag.startswith(("-l", "-L"))
     ]
 
+
+def resolves_to_vcpkg_archive(vcpkg_lib: Path, flag: str) -> bool:
+    if not flag.startswith("-l"):
+        return False
+    name = flag[2:]
+    if name.startswith(":"):
+        archive = vcpkg_lib / name[1:]
+    else:
+        archive = vcpkg_lib / f"lib{name}.a"
+    return archive.is_file()
+
+
+def flags_not_bundled_into_archive(vcpkg_lib: Path, flags: list[str]) -> list[str]:
+    return [
+        flag
+        for flag in flags
+        if not flag.startswith("-L") and not resolves_to_vcpkg_archive(vcpkg_lib, flag)
+    ]
+
+
 def append_unique(flags: list[str], more_flags: list[str]) -> None:
     seen = set(flags)
     for flag in more_flags:
@@ -123,7 +143,6 @@ def render_lines(
     is_windows = os_name == "Windows"
 
     flags = [
-        f"-L{vcpkg_lib}",
         f"-L{build_dir}",
     ]
 
@@ -133,7 +152,9 @@ def render_lines(
             append_unique(flags, ["-subsystem windows"])
         append_unique(flags, ["-lasmrun"])
     
-    slibs = pkg_config_libs(vcpkg_lib, "protobuf-lite", "sdl3")
+    slibs = flags_not_bundled_into_archive(
+        vcpkg_lib, pkg_config_libs(vcpkg_lib, "protobuf-lite", "sdl3")
+    )
     append_unique(flags, slibs)
     if is_apple:
         append_unique(flags, framework_flags())

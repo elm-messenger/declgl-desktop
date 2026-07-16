@@ -86,20 +86,22 @@ if(BUILD_OCAML_BRIDGE)
 endif()
 
 # ----------------------------------------------------------------------------
-# libdeclgl.a — a single static archive that the OCaml dune side picks up
-# via (foreign_archives declgl). We build it directly from the object files
-# emitted by the first-party/object-library targets that the OCaml-linked
-# binary needs at link time:
+# libdeclgl_base.a — first-party/object-library archive used as input for
+# libdeclgl.a. The OCaml dune side picks up the final bundled archive via
+# (foreign_archives declgl). We build the base archive directly from the
+# object files emitted by the targets that the OCaml-linked binary needs at
+# link time:
 #   - declgl_caml_bridge  (extern "C" CAMLprim entry points)
 #   - declgl_engine       (SDL/GL + per-command dispatch)
 #   - declgl_proto        (generated protobuf C++ stubs)
 #   - glad                (GL loader)
 #
-# The third-party archives we depend on (SDL3, protobuf, abseil, ...) stay
-# as separate -l flags fed to dune via c_library_flags — folding those into
-# libdeclgl.a would balloon the archive and is brittle across vcpkg layouts.
+# A post-build step repacks this base archive together with the vcpkg static
+# archives reported by pkg-config for protobuf-lite and SDL3. System libraries
+# still stay as linker flags because normal static archives cannot contain
+# libc/libstdc++/pthread/rt-style platform libraries.
 # ----------------------------------------------------------------------------
-add_library(declgl STATIC
+add_library(declgl_base STATIC
     $<$<BOOL:${BUILD_OCAML_BRIDGE}>:$<TARGET_OBJECTS:declgl_caml_bridge>>
     $<TARGET_OBJECTS:declgl_runtime>
     $<TARGET_OBJECTS:declgl_engine>
@@ -115,8 +117,9 @@ add_library(declgl STATIC
     $<TARGET_OBJECTS:stb_vorbis>
 )
 
-set_target_properties(declgl PROPERTIES
+set_target_properties(declgl_base PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    OUTPUT_NAME "declgl_base"
     POSITION_INDEPENDENT_CODE ON
 )
 
@@ -124,31 +127,48 @@ set_target_properties(declgl PROPERTIES
 # Dune integration: emit two artefacts that the OCaml side ingests via
 # (foreign_archives ...) + (c_library_flags (:include ...)).
 #
-#   1. libdeclgl.a (already produced above) — bundled first-party code.
-#   2. declgl_link_flags.sexp — third-party link flags as an S-expression
+#   1. libdeclgl.a — first-party code plus bundled vcpkg static archives.
+#   2. declgl_link_flags.sexp — remaining link flags as an S-expression
 #      that dune can splice into c_library_flags. A dedicated Python helper
 #      writes the file from the resolved vcpkg/build paths.
 #
 # The .sexp lives next to libdeclgl.a so the OCaml side can point at one
-# directory and find both. We always re-generate it at configure time once
-# vcpkg has resolved.
+# directory and find both. Both outputs are tracked build artefacts.
 # ----------------------------------------------------------------------------
 set(_DECLGL_LINK_SEXP "${CMAKE_BINARY_DIR}/declgl_link_flags.sexp")
+set(_DECLGL_ARCHIVE   "${CMAKE_BINARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}declgl${CMAKE_STATIC_LIBRARY_SUFFIX}")
 set(_VCPKG_LIB        "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib")
 set(_DECLGL_LINK_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/write_declgl_link_flags.py")
+set(_DECLGL_BUNDLE_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/bundle_static_archive.py")
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-set(_DECLGL_LINK_SCRIPT_ARGS
-    "${_DECLGL_LINK_SCRIPT}"
-    --vcpkg-lib "${_VCPKG_LIB}"
-    --build-dir "${CMAKE_BINARY_DIR}"
-    --output "${_DECLGL_LINK_SEXP}"
-    --os-name "${CMAKE_SYSTEM_NAME}"
+add_custom_command(
+    OUTPUT "${_DECLGL_ARCHIVE}"
+    COMMAND "${Python3_EXECUTABLE}" "${_DECLGL_BUNDLE_SCRIPT}"
+        --input "$<TARGET_FILE:declgl_base>"
+        --output "${_DECLGL_ARCHIVE}"
+        --vcpkg-lib "${_VCPKG_LIB}"
+        --ar "${CMAKE_AR}"
+        --ranlib "${CMAKE_RANLIB}"
+        --packages protobuf-lite sdl3
+    DEPENDS declgl_base "${_DECLGL_BUNDLE_SCRIPT}"
+    VERBATIM
 )
 
-execute_process(
-    COMMAND "${Python3_EXECUTABLE}" ${_DECLGL_LINK_SCRIPT_ARGS}
-    COMMAND_ERROR_IS_FATAL ANY
+add_custom_target(declgl ALL DEPENDS "${_DECLGL_ARCHIVE}")
+
+add_custom_command(
+    OUTPUT "${_DECLGL_LINK_SEXP}"
+    COMMAND "${Python3_EXECUTABLE}" "${_DECLGL_LINK_SCRIPT}"
+        --vcpkg-lib "${_VCPKG_LIB}"
+        --build-dir "${CMAKE_BINARY_DIR}"
+        --output "${_DECLGL_LINK_SEXP}"
+        --os-name "${CMAKE_SYSTEM_NAME}"
+    DEPENDS "${_DECLGL_LINK_SCRIPT}"
+    VERBATIM
 )
 
+add_custom_target(declgl_link_flags ALL DEPENDS "${_DECLGL_LINK_SEXP}")
+
+message(STATUS "[declgl] bundled static archive -> ${_DECLGL_ARCHIVE}")
 message(STATUS "[declgl] wrote dune link flags -> ${_DECLGL_LINK_SEXP}")
