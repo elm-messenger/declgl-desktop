@@ -63,6 +63,7 @@ ElmHost::~ElmHost()
 	for (auto &timer : timers_)
 		JS_FreeValue(ctx_, timer.callback);
 	timers_.clear();
+	JS_FreeValue(ctx_, resize_fn_);
 	JS_FreeValue(ctx_, dispatch_fn_);
 	JS_FreeValue(ctx_, data_file_port_);
 	JS_FreeValue(ctx_, audio_from_port_);
@@ -538,6 +539,7 @@ bool ElmHost::initialize()
 		return false;
 	JSValue global2 = JS_GetGlobalObject(ctx_);
 	dispatch_fn_ = JS_GetPropertyStr(ctx_, global2, "__declglDispatch");
+	resize_fn_ = JS_GetPropertyStr(ctx_, global2, "__declglDispatchResize");
 	JS_FreeValue(ctx_, global2);
 	run_timers(false);
 	return drain_jobs() && !failed_;
@@ -614,6 +616,16 @@ std::vector<std::vector<uint8_t> > ElmHost::take_startup_commands()
 
 void ElmHost::enqueue_command(std::string bytes, bool start)
 {
+	if (start) {
+		mlregl::transport::backend::BackendCommandBatch batch;
+		if (batch.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) &&
+		    batch.commands_size() == 1 &&
+		    batch.commands(0).kind_case() ==
+			    mlregl::transport::backend::BackendCommand::kStartRegl) {
+			const auto &config = batch.commands(0).start_regl();
+			set_dom_viewport(config.virt_width(), config.virt_height());
+		}
+	}
 	std::vector<uint8_t> payload(bytes.begin(), bytes.end());
 	if (!start_seen_ && !start) {
 		pre_start_commands_.push_back(std::move(payload));
@@ -641,8 +653,20 @@ void ElmHost::before_frame()
 }
 void ElmHost::before_events()
 {
-	if (!failed_)
+	if (!failed_) {
+		if (viewport_resize_pending_) {
+			viewport_resize_pending_ = false;
+			interrupt_deadline_ = std::chrono::steady_clock::now() +
+				      std::chrono::milliseconds(250);
+			JSValue result = JS_Call(ctx_, resize_fn_, JS_UNDEFINED, 0,
+						 nullptr);
+			if (JS_IsException(result))
+				capture_exception("DOM resize event");
+			JS_FreeValue(ctx_, result);
+			drain_jobs();
+		}
 		run_timers(true);
+	}
 }
 void ElmHost::before_view()
 {
@@ -708,6 +732,26 @@ void ElmHost::dispatch_dom_event(const char *type, JSValue init)
 		capture_exception("DOM event");
 	JS_FreeValue(ctx_, result);
 	drain_jobs();
+}
+
+void ElmHost::set_dom_viewport(double width, double height)
+{
+	JSValue global = JS_GetGlobalObject(ctx_);
+	JSValue setter =
+		JS_GetPropertyStr(ctx_, global, "__declglSetViewport");
+	JS_FreeValue(ctx_, global);
+	JSValue args[] = { JS_NewFloat64(ctx_, width),
+			   JS_NewFloat64(ctx_, height) };
+	interrupt_deadline_ = std::chrono::steady_clock::now() +
+			      std::chrono::milliseconds(250);
+	JSValue result = JS_Call(ctx_, setter, JS_UNDEFINED, 2, args);
+	JS_FreeValue(ctx_, args[0]);
+	JS_FreeValue(ctx_, args[1]);
+	JS_FreeValue(ctx_, setter);
+	if (JS_IsException(result))
+		capture_exception("DOM viewport update");
+	JS_FreeValue(ctx_, result);
+	viewport_resize_pending_ = !failed_;
 }
 
 void ElmHost::deliver_event(const uint8_t *bytes, std::size_t len)

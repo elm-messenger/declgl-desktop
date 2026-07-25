@@ -80,6 +80,7 @@ class ElmHost final : public LoopHooks {
 	JSValue audio_from_port_ = JS_UNDEFINED;
 	JSValue data_file_port_ = JS_UNDEFINED;
 	JSValue dispatch_fn_ = JS_UNDEFINED;
+	JSValue resize_fn_ = JS_UNDEFINED;
 	std::deque<std::vector<uint8_t> > commands_;
 	std::deque<std::vector<uint8_t> > pre_start_commands_;
 	std::deque<std::vector<uint8_t> > audio_commands_;
@@ -94,6 +95,7 @@ class ElmHost final : public LoopHooks {
 	double time_origin_ms_ = 0.0;
 	bool failed_ = false;
 	bool start_seen_ = false;
+	bool viewport_resize_pending_ = false;
 	bool stop_requested_ = false;
 	std::size_t frame_count_ = 0;
 	std::string error_;
@@ -112,6 +114,7 @@ class ElmHost final : public LoopHooks {
 	JSValue get_port(const char *name, bool required);
 	bool send_port(JSValueConst port, JSValue value, const char *name);
 	void dispatch_dom_event(const char *type, JSValue init);
+	void set_dom_viewport(double width, double height);
 	void enqueue_command(std::string bytes, bool start);
 
 	static ElmHost *self(JSContext *ctx);

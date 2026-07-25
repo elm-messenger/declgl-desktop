@@ -245,4 +245,26 @@
     if (type.indexOf("key") === 0 && document.activeElement) target = document.activeElement;
     return target.dispatchEvent(new HostEvent(type, init));
   };
+  global.__declglSetViewport = function (width, height) {
+    width = Math.max(0, Math.round(Number(width) || 0));
+    height = Math.max(0, Math.round(Number(height) || 0));
+    global.innerWidth = width;
+    global.innerHeight = height;
+    for (const node of [document.documentElement, document.body]) {
+      node.clientWidth = width;
+      node.clientHeight = height;
+      node.offsetWidth = width;
+      node.offsetHeight = height;
+      node.scrollWidth = width;
+      node.scrollHeight = height;
+    }
+  };
+  global.__declglDispatchResize = function () {
+    return global.dispatchEvent(new HostEvent("resize", {
+      bubbles: false,
+      target: global,
+      innerWidth: global.innerWidth,
+      innerHeight: global.innerHeight
+    }));
+  };
 })(globalThis);
