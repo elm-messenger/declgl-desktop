@@ -20,7 +20,6 @@ namespace declgl
 struct ElmHostConfig {
 	std::filesystem::path script;
 	std::string module;
-	std::optional<std::filesystem::path> flags;
 	std::string app_name;
 	bool fullscreen = false;
 	std::size_t memory_limit = 128 * 1024 * 1024;
@@ -133,6 +132,8 @@ class ElmHost final : public LoopHooks {
 	static JSValue js_audio(JSContext *, JSValueConst, int, JSValueConst *);
 	static JSValue js_load_data_file(JSContext *, JSValueConst, int,
 				     JSValueConst *);
+	static JSValue js_save_info(JSContext *, JSValueConst, int,
+				JSValueConst *);
 	static JSValue js_ignore(JSContext *, JSValueConst, int, JSValueConst *);
 };
 

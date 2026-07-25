@@ -9,6 +9,7 @@
 #include "elm_host/elm_adapter.h"
 #include "headless_dom.inc"
 #include "log/log.h"
+#include "resources/asset_loader.h"
 #include "transport_audio.pb.h"
 #include "transport_backend.pb.h"
 #include "transport_render.pb.h"
@@ -260,6 +261,28 @@ JSValue ElmHost::js_audio(JSContext *ctx, JSValueConst, int argc,
 		host->fail(std::move(error));
 		return JS_ThrowTypeError(ctx, "%s", host->error_.c_str());
 	}
+	for (auto &action : *audio.mutable_actions()) {
+		if (action.has_start_sound()) {
+			auto *start = action.mutable_start_sound();
+			start->set_start_time(start->start_time() -
+					      host->time_origin_ms_);
+			for (auto &timeline :
+			     *start->mutable_volume_timelines()) {
+				for (auto &point : *timeline.mutable_points()) {
+					point.set_time(point.time() -
+						       host->time_origin_ms_);
+				}
+			}
+		} else if (action.has_set_volume_at()) {
+			for (auto &timeline :
+			     *action.mutable_set_volume_at()->mutable_volume_at()) {
+				for (auto &point : *timeline.mutable_points()) {
+					point.set_time(point.time() -
+						       host->time_origin_ms_);
+				}
+			}
+		}
+	}
 	for (auto &request : requests)
 		host->pending_audio_requests_[request.url].push_back(
 			request.request_id);
@@ -301,6 +324,22 @@ JSValue ElmHost::js_load_data_file(JSContext *ctx, JSValueConst, int argc,
 	return JS_UNDEFINED;
 }
 
+JSValue ElmHost::js_save_info(JSContext *ctx, JSValueConst, int argc,
+			       JSValueConst *argv)
+{
+	auto *host = self(ctx);
+	if (argc < 1 || !JS_IsString(argv[0]))
+		return JS_ThrowTypeError(ctx, "sendInfo expects a string");
+	mlregl::transport::backend::BackendCommandBatch batch;
+	auto *save = batch.add_commands()->mutable_save_value();
+	save->set_key("info");
+	save->set_value(js_string(ctx, argv[0]));
+	std::string bytes;
+	batch.SerializeToString(&bytes);
+	host->enqueue_command(std::move(bytes), false);
+	return JS_UNDEFINED;
+}
+
 JSValue ElmHost::js_ignore(JSContext *, JSValueConst, int, JSValueConst *)
 {
 	return JS_UNDEFINED;
@@ -328,19 +367,14 @@ bool ElmHost::install_host_api()
 
 JSValue ElmHost::parse_flags()
 {
-	if (!config_.flags)
-		return JS_UNDEFINED;
-	auto text = read_file(*config_.flags);
-	if (!text) {
-		fail("cannot read flags file '" + config_.flags->string() +
-		     "'");
-		return JS_EXCEPTION;
-	}
-	JSValue value = JS_ParseJSON(ctx_, text->data(), text->size(),
-				     config_.flags->string().c_str());
-	if (JS_IsException(value))
-		capture_exception("parse flags");
-	return value;
+	const auto info = read_kv_store_value(app_kv_store_path(config_.app_name),
+					      "info");
+	JSValue flags = JS_NewObject(ctx_);
+	set_property(ctx_, flags, "timeStamp",
+		     JS_NewFloat64(ctx_, time_origin_ms_));
+	set_property(ctx_, flags, "info",
+		     JS_NewString(ctx_, info ? info->c_str() : ""));
+	return flags;
 }
 
 JSValue ElmHost::get_port(const char *name, bool required)
@@ -453,7 +487,16 @@ bool ElmHost::bind_ports()
 	}
 	JS_FreeValue(ctx_, load_data_port);
 
-	for (const char *name : { "alert", "prompt", "sendInfo" }) {
+	JSValue send_info_port = get_port("sendInfo", false);
+	if (JS_IsObject(send_info_port) &&
+	    !subscribe_port(send_info_port, js_save_info, "declglSaveInfo",
+			    "subscribe sendInfo")) {
+		JS_FreeValue(ctx_, send_info_port);
+		return false;
+	}
+	JS_FreeValue(ctx_, send_info_port);
+
+	for (const char *name : { "alert", "prompt" }) {
 		JSValue port = get_port(name, false);
 		if (JS_IsObject(port) &&
 		    !subscribe_port(port, js_ignore, "declglIgnore", name)) {

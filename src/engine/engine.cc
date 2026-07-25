@@ -374,17 +374,7 @@ std::string Engine::kv_store_path() const
 	// empty StartRegl.app_name falls back to "declgl" so legacy
 	// callers that haven't set the new field still get a stable
 	// per-user store rather than the cwd.
-	const std::string app = app_name_.empty() ? std::string("declgl") :
-						    app_name_;
-	char *pref = SDL_GetPrefPath(app.c_str(), "");
-	if (pref) {
-		std::string path(pref);
-		SDL_free(pref);
-		return path + "kv_store.json";
-	}
-	DECLGL_LOG_WARN(
-		"SDL_GetPrefPath failed for kv storage; using current directory");
-	return "ml_regl_kv_store.json";
+	return app_kv_store_path(app_name_).string();
 }
 
 void Engine::ensure_kv_load_started()

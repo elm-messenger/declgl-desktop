@@ -13,7 +13,6 @@ namespace
 struct Options {
 	std::filesystem::path script;
 	std::string module = "Main";
-	std::optional<std::filesystem::path> flags;
 	std::filesystem::path asset_root;
 	std::string app_name;
 	bool fullscreen = false;
@@ -23,7 +22,7 @@ struct Options {
 void usage(const char *program)
 {
 	std::cerr << "Usage: " << program
-		  << " --script app.js [--module Main] [--flags flags.json]"
+		  << " --script app.js [--module Main]"
 		     " [--asset-root path] [--app-name name] [--fullscreen]"
 		     " [--frames count]\n";
 }
@@ -46,8 +45,6 @@ std::optional<Options> parse_options(int argc, char **argv)
 			options.script = value;
 		else if (arg == "--module")
 			options.module = value;
-		else if (arg == "--flags")
-			options.flags = value;
 		else if (arg == "--asset-root")
 			options.asset_root = value;
 		else if (arg == "--app-name")
@@ -94,7 +91,6 @@ int main(int argc, char **argv)
 	declgl::ElmHostConfig config;
 	config.script = options->script;
 	config.module = options->module;
-	config.flags = options->flags;
 	config.app_name = options->app_name;
 	config.fullscreen = options->fullscreen;
 	config.max_frames = options->frames;

@@ -57,6 +57,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -70,6 +71,10 @@ namespace declgl
 {
 
 class Font;
+
+std::filesystem::path app_kv_store_path(std::string_view app_name);
+std::optional<std::string>
+read_kv_store_value(const std::filesystem::path &path, std::string_view key);
 
 // What kind of asset a job represents. Drives the worker's decode
 // strategy and the GL-thread drain's upload + register logic.

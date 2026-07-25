@@ -21,6 +21,40 @@
 namespace declgl
 {
 
+std::filesystem::path app_kv_store_path(std::string_view app_name)
+{
+	const std::string app =
+		app_name.empty() ? std::string("declgl") : std::string(app_name);
+	char *pref = SDL_GetPrefPath(app.c_str(), "");
+	if (pref) {
+		std::filesystem::path path(pref);
+		SDL_free(pref);
+		return path / "kv_store.json";
+	}
+	return "ml_regl_kv_store.json";
+}
+
+std::optional<std::string>
+read_kv_store_value(const std::filesystem::path &path, std::string_view key)
+{
+	std::ifstream stream(path, std::ios::binary);
+	if (!stream)
+		return std::nullopt;
+	try {
+		nlohmann::json doc;
+		stream >> doc;
+		const auto values = doc.find("values");
+		if (values == doc.end() || !values->is_object())
+			return std::nullopt;
+		const auto value = values->find(std::string(key));
+		if (value == values->end() || !value->is_string())
+			return std::nullopt;
+		return value->get<std::string>();
+	} catch (const std::exception &) {
+		return std::nullopt;
+	}
+}
+
 AssetLoader::AssetLoader(std::filesystem::path asset_root)
 {
 	// Snapshot the asset root once at construction so the worker

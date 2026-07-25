@@ -42,9 +42,10 @@ exposing only one port is an initialization error.
 Messenger-generated applications may also expose `loadDataFile` and
 `dataFileLoaded`. The host maps these to the native `LoadFile` command and
 returns `{ name, data }`, using an empty data string on load failure to match
-the browser helper. `alert`, `prompt`, and `sendInfo` outgoing ports are
-subscribed as no-ops; the desktop player does not create browser dialogs or
-DOM UI for them.
+the browser helper. The host persists `sendInfo` under the application-scoped
+native key/value store and supplies it as the next launch's `flags.info`.
+`alert` and `prompt` remain no-ops; the desktop player does not create browser
+dialogs or DOM UI for them.
 
 ## Goals
 
@@ -118,14 +119,15 @@ system. The selected revision must be identical on Linux, macOS, and Windows.
 The initial interface should be explicit and suitable for packaging:
 
 ```text
-declgl-player --script app.js [--module Main] [--flags flags.json]
-              [--asset-root assets] [--app-name name] [--fullscreen]
+declgl-player --script app.js [--module Main] [--asset-root assets]
+              [--app-name name] [--fullscreen]
 ```
 
 - `--script` is read at runtime and evaluated as classic Elm-generated JS.
 - `--module` resolves a dotted path below `globalThis.Elm` and defaults to
   `Main`.
-- `--flags` is optional JSON passed to `Elm.<module>.init`.
+- The player constructs Messenger flags internally. `timeStamp` is the launch
+  wall-clock time and `info` comes from the app-scoped persistent store.
 - `--asset-root` defaults to the script's directory.
 - `--app-name` controls the window/persistence application identity.
 - `--fullscreen` starts the native SDL window in fullscreen mode.
@@ -159,7 +161,8 @@ Initialization proceeds in this order:
 4. Evaluate the Elm-generated JavaScript file.
 5. Resolve `globalThis.Elm.<module>.init`.
 6. Create a synthetic root DOM element.
-7. Call `init({ node: root, flags })`, omitting `flags` when none were given.
+7. Load persisted app information, construct Messenger flags, and call
+   `init({ node: root, flags })`.
 8. Validate and retain the returned application object.
 9. Subscribe native callbacks to `execREGLCmd` and `setView`.
 10. Resolve the optional inbound ports `reglupdate` and `recvREGLCmd`.
@@ -438,10 +441,9 @@ plain native data until delivered on the main thread.
 
 Fatal startup errors include:
 
-- unreadable JavaScript or flags files;
+- unreadable JavaScript files;
 - JavaScript parse/evaluation failure;
 - missing Elm module or `init` function;
-- invalid flags;
 - missing required elm-regl ports;
 - no `start` command during startup; and
 - native window/OpenGL initialization failure.

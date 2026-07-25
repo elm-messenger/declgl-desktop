@@ -201,6 +201,8 @@ int32_t AudioEngine::register_buffer(std::string audio_url, DecodedAudio buffer)
 		buffers_.push_back(std::move(buf));
 	}
 	by_url_[audio_url] = id;
+	DECLGL_LOG_INFO("audio loaded: url={} buffer_id={} duration={:.3f}s",
+			 audio_url, id, buffers_[id]->duration_seconds);
 
 	mlregl::transport::audio::AudioBackendEvent ev;
 	auto *ok = ev.mutable_audio_load_success();
@@ -311,6 +313,9 @@ bool AudioEngine::exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 				}
 				c.timelines.push_back(std::move(pts));
 			}
+			DECLGL_LOG_INFO(
+				"start_sound: group={} buffer_id={} start_time={:.3f} now={:.3f}",
+				c.node_group_id, bid, c.start_time_ms, c.now_ms);
 			break;
 		}
 		case AudioAction::kStopSound:
