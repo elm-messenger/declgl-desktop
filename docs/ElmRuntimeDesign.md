@@ -104,7 +104,7 @@ The initial interface should be explicit and suitable for packaging:
 
 ```text
 declgl-player --script app.js [--module Main] [--flags flags.json]
-              [--asset-root assets] [--app-name name]
+              [--asset-root assets] [--app-name name] [--fullscreen]
 ```
 
 - `--script` is read at runtime and evaluated as classic Elm-generated JS.
@@ -113,6 +113,7 @@ declgl-player --script app.js [--module Main] [--flags flags.json]
 - `--flags` is optional JSON passed to `Elm.<module>.init`.
 - `--asset-root` defaults to the script's directory.
 - `--app-name` controls the window/persistence application identity.
+- `--fullscreen` starts the native SDL window in fullscreen mode.
 
 A later package manifest can wrap these arguments, but is not required for the
 first working integration.

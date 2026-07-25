@@ -19,7 +19,7 @@ namespace declgl::elm
 {
 
 bool command_from_js(JSContext *ctx, JSValueConst value,
-		     const std::string &app_name,
+		     const std::string &app_name, bool fullscreen,
 		     mlregl::transport::backend::BackendCommand &out,
 		     std::string &error);
 bool view_from_js(JSContext *ctx, JSValueConst value,

@@ -174,6 +174,7 @@ Optional arguments are:
 - `--flags flags.json` to pass Elm initialization flags;
 - `--module Name` to select the Elm module, defaulting to `Main`;
 - `--app-name name` to select the persistence namespace;
+- `--fullscreen` to create the SDL window in fullscreen mode;
 - `--frames count` to stop after a bounded number of frames, primarily for
   automated runs.
 

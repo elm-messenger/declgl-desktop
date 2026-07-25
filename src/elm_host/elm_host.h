@@ -21,6 +21,7 @@ struct ElmHostConfig {
 	std::string module;
 	std::optional<std::filesystem::path> flags;
 	std::string app_name;
+	bool fullscreen = false;
 	std::size_t memory_limit = 128 * 1024 * 1024;
 	std::size_t stack_limit = 2 * 1024 * 1024;
 	std::size_t max_frames = 0;

@@ -16,15 +16,16 @@ struct Options {
 	std::optional<std::filesystem::path> flags;
 	std::filesystem::path asset_root;
 	std::string app_name;
+	bool fullscreen = false;
 	std::size_t frames = 0;
 };
 
 void usage(const char *program)
 {
-	std::cerr
-		<< "Usage: " << program
-		<< " --script app.js [--module Main] [--flags flags.json]"
-		   " [--asset-root path] [--app-name name] [--frames count]\n";
+	std::cerr << "Usage: " << program
+		  << " --script app.js [--module Main] [--flags flags.json]"
+		     " [--asset-root path] [--app-name name] [--fullscreen]"
+		     " [--frames count]\n";
 }
 
 std::optional<Options> parse_options(int argc, char **argv)
@@ -32,6 +33,10 @@ std::optional<Options> parse_options(int argc, char **argv)
 	Options options;
 	for (int i = 1; i < argc; ++i) {
 		const std::string arg = argv[i];
+		if (arg == "--fullscreen") {
+			options.fullscreen = true;
+			continue;
+		}
 		if (arg == "--help" || arg == "-h")
 			return std::nullopt;
 		if (i + 1 >= argc)
@@ -91,6 +96,7 @@ int main(int argc, char **argv)
 	config.module = options->module;
 	config.flags = options->flags;
 	config.app_name = options->app_name;
+	config.fullscreen = options->fullscreen;
 	config.max_frames = options->frames;
 	declgl::ElmHost host(std::move(config));
 	if (!host.initialize()) {

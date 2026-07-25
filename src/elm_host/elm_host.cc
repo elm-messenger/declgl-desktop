@@ -203,8 +203,8 @@ JSValue ElmHost::js_command(JSContext *ctx, JSValueConst, int argc,
 			ctx, "execREGLCmd callback expects a value");
 	mlregl::transport::backend::BackendCommand command;
 	std::string error;
-	if (!elm::command_from_js(ctx, argv[0], host->config_.app_name, command,
-				  error)) {
+	if (!elm::command_from_js(ctx, argv[0], host->config_.app_name,
+				  host->config_.fullscreen, command, error)) {
 		host->fail(std::move(error));
 		return JS_ThrowTypeError(ctx, "%s", host->error_.c_str());
 	}

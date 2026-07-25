@@ -350,7 +350,7 @@ void set(JSContext *ctx, JSValueConst obj, const char *key, JSValue value)
 } // namespace
 
 bool command_from_js(JSContext *ctx, JSValueConst value,
-		     const std::string &app_name,
+		     const std::string &app_name, bool fullscreen,
 		     mlregl::transport::backend::BackendCommand &out,
 		     std::string &error)
 {
@@ -379,6 +379,8 @@ bool command_from_js(JSContext *ctx, JSValueConst value,
 		start->set_virt_height(height);
 		start->set_fbo_num(static_cast<uint32_t>(fbo));
 		start->set_app_name(app_name);
+		if (fullscreen)
+			start->mutable_window()->set_fullscreen(true);
 		Value programs = prop(ctx, value, "programs");
 		if (!JS_IsUndefined(programs.get())) {
 			int64_t count = 0;
