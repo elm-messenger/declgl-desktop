@@ -171,7 +171,6 @@ application is embedded in the player binary.
 
 Optional arguments are:
 
-- `--flags flags.json` to pass Elm initialization flags;
 - `--module Name` to select the Elm module, defaulting to `Main`;
 - `--app-name name` to select the persistence namespace;
 - `--fullscreen` to create the SDL window in fullscreen mode;
