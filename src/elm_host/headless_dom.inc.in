@@ -1,0 +1,3 @@
+static constexpr const char kHeadlessDomSource[] = R"DECLGL_DOM(
+@HEADLESS_DOM_SOURCE@
+)DECLGL_DOM";

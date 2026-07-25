@@ -21,7 +21,7 @@
 namespace declgl
 {
 
-AssetLoader::AssetLoader()
+AssetLoader::AssetLoader(std::filesystem::path asset_root)
 {
 	// Snapshot the asset root once at construction so the worker
 	// thread can resolve paths without grabbing SDL state itself.
@@ -31,7 +31,11 @@ AssetLoader::AssetLoader()
 	// copy it into our path. We canonicalize so the
 	// std::filesystem::relative() containment check below is
 	// symbol-comparable across the two paths it sees.
-	if (const char *base = SDL_GetBasePath()) {
+	if (!asset_root.empty()) {
+		std::error_code ec;
+		auto canon = std::filesystem::weakly_canonical(asset_root, ec);
+		asset_root_ = ec ? std::move(asset_root) : std::move(canon);
+	} else if (const char *base = SDL_GetBasePath()) {
 		std::error_code ec;
 		std::filesystem::path p(base);
 		auto canon = std::filesystem::weakly_canonical(p, ec);
@@ -55,7 +59,7 @@ void AssetLoader::enqueue(DecodeJob job)
 }
 
 std::size_t AssetLoader::drain_ready(std::vector<ReadyAsset> &out,
-					     std::size_t max_items)
+				     std::size_t max_items)
 {
 	std::size_t moved = 0;
 	std::lock_guard<std::mutex> lk(mu_);
@@ -242,8 +246,7 @@ void save_kv_json(const std::string &path,
 // or not the target exists.
 std::optional<std::filesystem::path>
 resolve_under_root(const std::filesystem::path &root,
-		   const std::string &user_path,
-		   std::string &err)
+		   const std::string &user_path, std::string &err)
 {
 	if (root.empty()) {
 		err = "path_rejected: asset root unavailable";

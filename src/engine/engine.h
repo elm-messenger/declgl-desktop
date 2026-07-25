@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -58,7 +59,7 @@ using EventSink = std::function<void(const uint8_t *bytes, std::size_t len)>;
 
 class Engine {
     public:
-	Engine();
+	explicit Engine(std::filesystem::path asset_root = {});
 	~Engine();
 
 	Engine(const Engine &) = delete;
@@ -92,6 +93,9 @@ class Engine {
 	// drawing; 0 means unlimited.
 	void render(const mlregl::transport::render::Renderable &tree,
 		    std::size_t max_assets_per_frame);
+
+	// Finish ready asynchronous asset jobs on a frame with no render tree.
+	void process_ready_assets(std::size_t max_assets_per_frame);
 
 	void shutdown();
 
@@ -170,6 +174,7 @@ class Engine {
 	// lazily on first audio activity (matches JS's lazy
 	// AudioContext creation). Destroyed in [shutdown].
 	std::unique_ptr<AudioEngine> audio_;
+	std::filesystem::path asset_root_;
 };
 
 } // namespace declgl

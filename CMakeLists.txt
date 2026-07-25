@@ -37,6 +37,7 @@ endif()
 # to opt out — useful for non-OCaml hosts (e.g. the future declgl-player
 # gRPC executable) and on machines without ocamlc in PATH.
 option(BUILD_OCAML_BRIDGE "Build the OCaml ↔ C++ bridge target" ON)
+option(BUILD_ELM_PLAYER "Build the standalone Elm/QuickJS player" ON)
 
 # Common warning flags. Kept simple, no fancy lint options yet.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
@@ -57,6 +58,9 @@ find_package(glm       CONFIG REQUIRED)
 find_package(Protobuf  CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(quill     CONFIG REQUIRED)
+if(BUILD_ELM_PLAYER)
+    find_package(qjs CONFIG REQUIRED)
+endif()
 
 find_package(SDL3      CONFIG REQUIRED)
 
@@ -83,6 +87,10 @@ add_subdirectory(src/engine)
 add_subdirectory(src/runtime)
 if(BUILD_OCAML_BRIDGE)
     add_subdirectory(src/caml_bridge)
+endif()
+if(BUILD_ELM_PLAYER)
+    add_subdirectory(src/elm_host)
+    add_subdirectory(src/player)
 endif()
 
 # ----------------------------------------------------------------------------

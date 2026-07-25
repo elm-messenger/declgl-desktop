@@ -156,3 +156,37 @@ DECLGL_BUILD_DIR=$PWD/declgl-desktop/build/mac-debug dune build
 $env:DECLGL_BUILD_DIR = "$PWD\declgl-desktop\build\win-debug"
 dune build
 ```
+
+## Running elm-regl applications
+
+The build also produces `declgl-player`, a standalone QuickJS host for
+Elm-generated JavaScript. It loads application JavaScript at startup; no Elm
+application is embedded in the player binary.
+
+```bash
+./build/linux-debug/declgl-player \
+  --script /path/to/app.js \
+  --asset-root /path/to/project
+```
+
+Optional arguments are:
+
+- `--flags flags.json` to pass Elm initialization flags;
+- `--module Name` to select the Elm module, defaulting to `Main`;
+- `--app-name name` to select the persistence namespace;
+- `--frames count` to stop after a bounded number of frames, primarily for
+  automated runs.
+
+`Browser.element` applications run against a headless DOM. SDL input is
+dispatched through that DOM, but DOM nodes are never displayed. All visible
+rendering comes from elm-regl objects sent through `setView`.
+
+The current Elm runtime supports built-in elm-regl programs, groups, effects,
+compositors, textures, fonts, and clear commands. Custom shaders
+(`createGLProgram`) and save-as-texture render nodes (`_c = 4`) are rejected
+with an explicit error. Asset paths are package-relative and confined to
+`--asset-root`.
+
+Configure with `-DBUILD_ELM_PLAYER=OFF` to build only the existing OCaml
+backend. See [docs/ElmRuntimeDesign.md](docs/ElmRuntimeDesign.md) for the
+architecture and compatibility contract.

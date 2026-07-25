@@ -16,8 +16,7 @@
 namespace declgl
 {
 
-class LoopHooks
-{
+class LoopHooks {
     public:
 	virtual ~LoopHooks() = default;
 
@@ -30,18 +29,41 @@ class LoopHooks
 	}
 
 	// Called once after the last frame, before engine->shutdown().
-	virtual void on_loop_exit() {}
+	virtual void on_loop_exit()
+	{
+	}
 
 	// Invoked when a QuitRegl command is observed. The runtime has
 	// already set its internal quit flag; this is purely a notification
 	// for the host (e.g. so a gRPC player can half-close its stream).
-	virtual void on_quit() {}
+	virtual void on_quit()
+	{
+	}
 
 	// --- Per-frame fences ------------------------------------------
 	// Called at the top of each frame, before pump_events / view.
-	virtual void before_frame() {}
+	virtual void before_frame()
+	{
+	}
+	// Called immediately before SDL input is pumped. Hosts with an embedded
+	// scheduler can run frame callbacks here.
+	virtual void before_events()
+	{
+	}
+	// Called after SDL events and UpdateTick, before the view is pulled.
+	// Hosts may finish language-runtime jobs here; any commands they queued
+	// are drained immediately afterwards.
+	virtual void before_view()
+	{
+	}
 	// Called at the very end of each frame, after swap + pacing sleep.
-	virtual void after_frame() {}
+	virtual void after_frame()
+	{
+	}
+	virtual bool should_continue() const
+	{
+		return true;
+	}
 
 	// --- Command intake --------------------------------------------
 	// Called once per frame inside before_frame's slot. Implementations
@@ -71,8 +93,7 @@ class LoopHooks
 	// runtime construction.
 	virtual void on_backend_event(const uint8_t *bytes,
 				      std::size_t len) = 0;
-	virtual void on_audio_event(const uint8_t *bytes,
-				    std::size_t len) = 0;
+	virtual void on_audio_event(const uint8_t *bytes, std::size_t len) = 0;
 };
 
 } // namespace declgl

@@ -160,7 +160,7 @@ struct ReadyAsset {
 
 class AssetLoader {
     public:
-	AssetLoader();
+	explicit AssetLoader(std::filesystem::path asset_root = {});
 	~AssetLoader();
 
 	AssetLoader(const AssetLoader &) = delete;

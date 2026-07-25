@@ -27,6 +27,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <filesystem>
+#include <string>
 
 namespace mlregl::transport::backend
 {
@@ -40,12 +42,12 @@ namespace declgl
 class Engine;
 class LoopHooks;
 
-class Runtime
-{
+class Runtime {
     public:
 	// Captures `hooks` by reference; the caller owns the LoopHooks
 	// instance and must keep it alive for the lifetime of Runtime.
-	explicit Runtime(LoopHooks &hooks);
+	explicit Runtime(LoopHooks &hooks,
+			 std::filesystem::path asset_root = {});
 	~Runtime();
 	Runtime(const Runtime &) = delete;
 	Runtime &operator=(const Runtime &) = delete;
@@ -77,6 +79,7 @@ class Runtime
 	// first dispatch() / dispatch_audio() call lazily constructs the
 	// engine.
 	Engine *engine();
+	const std::string &last_error() const;
 
     private:
 	struct Impl;

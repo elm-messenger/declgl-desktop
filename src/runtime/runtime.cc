@@ -153,17 +153,20 @@ struct MousePoint {
 // their own engine and trade off SDL state, but that's untested.
 // ---------------------------------------------------------------------------
 struct Runtime::Impl {
-	explicit Impl(LoopHooks &hooks)
+	explicit Impl(LoopHooks &hooks, std::filesystem::path asset_root)
 		: hooks_(hooks)
+		, asset_root_(std::move(asset_root))
 	{
 	}
 
 	LoopHooks &hooks_;
+	std::filesystem::path asset_root_;
 
 	std::unique_ptr<declgl::Engine> engine_;
 	bool engine_sinks_installed_ = false;
 
 	bool loop_running_ = false;
+	std::string last_error_;
 	// Set when a [QuitRegl] BackendCommand arrives. Checked at the top
 	// of drive_one_frame; the loop exits before the next host update so
 	// the host model never observes the post-quit frame. Cleared after
@@ -215,7 +218,8 @@ void Runtime::Impl::ensure_engine()
 {
 	if (engine_)
 		return;
-	engine_ = std::make_unique<declgl::Engine>();
+	engine_ = std::make_unique<declgl::Engine>(asset_root_);
+	engine_->init_decoders_only();
 	install_engine_sinks();
 }
 
@@ -225,14 +229,13 @@ void Runtime::Impl::install_engine_sinks()
 		return;
 	if (!engine_)
 		return;
-	engine_->set_event_sink([this](const uint8_t *bytes,
-				       std::size_t len) {
+	engine_->set_event_sink([this](const uint8_t *bytes, std::size_t len) {
 		hooks_.on_backend_event(bytes, len);
 	});
-	engine_->set_audio_event_sink([this](const uint8_t *bytes,
-					     std::size_t len) {
-		hooks_.on_audio_event(bytes, len);
-	});
+	engine_->set_audio_event_sink(
+		[this](const uint8_t *bytes, std::size_t len) {
+			hooks_.on_audio_event(bytes, len);
+		});
 	engine_sinks_installed_ = true;
 }
 
@@ -273,10 +276,14 @@ MousePoint Runtime::Impl::mouse_to_virtual(float window_x, float window_y)
 		    static_cast<double>(fit_w);
 	double vy = (static_cast<double>(window_y) - off_y) * virt_height_ /
 		    static_cast<double>(fit_h);
-	if (vx < 0.0) vx = 0.0;
-	if (vy < 0.0) vy = 0.0;
-	if (vx > virt_width_) vx = virt_width_;
-	if (vy > virt_height_) vy = virt_height_;
+	if (vx < 0.0)
+		vx = 0.0;
+	if (vy < 0.0)
+		vy = 0.0;
+	if (vx > virt_width_)
+		vx = virt_width_;
+	if (vy > virt_height_)
+		vy = virt_height_;
 	out.x = vx;
 	out.y = vy;
 	return out;
@@ -357,9 +364,9 @@ bool Runtime::Impl::pump_events()
 		if (!pb.SerializeToString(&out))
 			continue;
 
-		hooks_.deliver_event(reinterpret_cast<const uint8_t *>(
-					     out.data()),
-				     out.size());
+		hooks_.deliver_event(
+			reinterpret_cast<const uint8_t *>(out.data()),
+			out.size());
 	}
 	return true;
 }
@@ -385,10 +392,12 @@ void Runtime::Impl::apply_pulled_commands()
 
 bool Runtime::Impl::drive_one_frame()
 {
-	if (quit_requested_)
+	if (quit_requested_ || !hooks_.should_continue())
 		return false;
 
 	hooks_.before_frame();
+	if (!hooks_.should_continue())
+		return false;
 	apply_pulled_commands();
 	if (quit_requested_)
 		return false;
@@ -397,6 +406,9 @@ bool Runtime::Impl::drive_one_frame()
 	sample.frame = profiling().frame_counter++;
 
 	const Uint64 t0 = SDL_GetTicksNS();
+	hooks_.before_events();
+	if (!hooks_.should_continue())
+		return false;
 	if (!pump_events())
 		return false;
 	const Uint64 t1 = SDL_GetTicksNS();
@@ -414,9 +426,9 @@ bool Runtime::Impl::drive_one_frame()
 		tick_pb.mutable_update_tick()->set_ts(now_ms);
 		std::string out;
 		if (tick_pb.SerializeToString(&out)) {
-			hooks_.deliver_event(reinterpret_cast<const uint8_t *>(
-						     out.data()),
-					     out.size());
+			hooks_.deliver_event(
+				reinterpret_cast<const uint8_t *>(out.data()),
+				out.size());
 		} else {
 			DECLGL_LOG_ERROR("update_tick: serialize failed");
 		}
@@ -427,6 +439,13 @@ bool Runtime::Impl::drive_one_frame()
 	// The host's deliver_event path (above) may have shipped a
 	// QuitRegl back via dispatch(); honour it before we burn view/
 	// render work on a frame whose result will be discarded.
+	if (quit_requested_)
+		return false;
+
+	hooks_.before_view();
+	if (!hooks_.should_continue())
+		return false;
+	apply_pulled_commands();
 	if (quit_requested_)
 		return false;
 
@@ -453,6 +472,7 @@ bool Runtime::Impl::drive_one_frame()
 			const Uint64 t_view_end = SDL_GetTicksNS();
 			sample.view_ns = t_view_end - t2;
 			sample.render_ns = 0;
+			engine_->process_ready_assets(max_assets_per_frame_);
 		}
 	}
 
@@ -511,6 +531,9 @@ bool Runtime::Impl::dispatch_batch(
 					}
 					need_loop = true;
 				} else {
+					last_error_ =
+						"native window/OpenGL initialization failed: " +
+						std::string(SDL_GetError());
 					DECLGL_LOG_ERROR(
 						"init_window_and_gl failed");
 					reset_engine();
@@ -625,8 +648,8 @@ bool Runtime::Impl::dispatch_batch(
 // Runtime public API
 // ---------------------------------------------------------------------------
 
-Runtime::Runtime(LoopHooks &hooks)
-	: impl_(std::make_unique<Impl>(hooks))
+Runtime::Runtime(LoopHooks &hooks, std::filesystem::path asset_root)
+	: impl_(std::make_unique<Impl>(hooks, std::move(asset_root)))
 {
 }
 
@@ -642,12 +665,19 @@ Engine *Runtime::engine()
 	return impl_->engine_.get();
 }
 
+const std::string &Runtime::last_error() const
+{
+	return impl_->last_error_;
+}
+
 bool Runtime::dispatch(const uint8_t *bytes, std::size_t len)
 {
 	impl_->ensure_engine();
+	impl_->last_error_.clear();
 
 	mlregl::transport::backend::BackendCommandBatch batch;
 	if (!batch.ParseFromArray(bytes, static_cast<int>(len))) {
+		impl_->last_error_ = "BackendCommandBatch parse failed";
 		DECLGL_LOG_ERROR("BackendCommandBatch parse failed ({} B)",
 				 len);
 		return false;
@@ -664,11 +694,10 @@ void Runtime::dispatch_audio(const uint8_t *bytes, std::size_t len)
 	// If the loop hasn't started yet we ship 0 — the AudioEngine handles
 	// that fine (it'll just queue commands against frame 0 of the
 	// playback timeline).
-	const double now_ms =
-		impl_->start_ticks_ == 0 ?
-			0.0 :
-			static_cast<double>(SDL_GetTicks() -
-					    impl_->start_ticks_);
+	const double now_ms = impl_->start_ticks_ == 0 ?
+				      0.0 :
+				      static_cast<double>(SDL_GetTicks() -
+							  impl_->start_ticks_);
 	impl_->engine_->exec_audio_cmd(bytes, len, now_ms);
 }
 

@@ -104,7 +104,10 @@ bool min_filter_uses_mipmaps(mlregl::transport::backend::TextureMinOption m)
 // Engine
 // ---------------------------------------------------------------------------
 
-Engine::Engine() = default;
+Engine::Engine(std::filesystem::path asset_root)
+	: asset_root_(std::move(asset_root))
+{
+}
 Engine::~Engine()
 {
 	shutdown();
@@ -123,7 +126,7 @@ void Engine::init_decoders_only()
 	// Their ready buffers sit in the loader's queue until [render()]
 	// starts draining them.
 	if (!loader_) {
-		loader_ = std::make_unique<AssetLoader>();
+		loader_ = std::make_unique<AssetLoader>(asset_root_);
 	}
 	if (!audio_) {
 		audio_ = std::make_unique<AudioEngine>();
@@ -312,12 +315,10 @@ bool Engine::init_window_and_gl(
 		// Palettes track the fitted rect (not the full window)
 		// so the [palette] passthrough samples 1:1 with the final
 		// blit and no double-stretching occurs.
-		const int fbo_w = render_ctx_->fit_w > 0 ?
-					  render_ctx_->fit_w :
-					  pw;
-		const int fbo_h = render_ctx_->fit_h > 0 ?
-					  render_ctx_->fit_h :
-					  ph;
+		const int fbo_w = render_ctx_->fit_w > 0 ? render_ctx_->fit_w :
+							   pw;
+		const int fbo_h = render_ctx_->fit_h > 0 ? render_ctx_->fit_h :
+							   ph;
 		if (!fbos_->init(fbo_count, fbo_w, fbo_h)) {
 			DECLGL_LOG_ERROR(
 				"FboPool::init failed (count={} size={}x{})",
@@ -373,8 +374,8 @@ std::string Engine::kv_store_path() const
 	// empty StartRegl.app_name falls back to "declgl" so legacy
 	// callers that haven't set the new field still get a stable
 	// per-user store rather than the cwd.
-	const std::string app =
-		app_name_.empty() ? std::string("declgl") : app_name_;
+	const std::string app = app_name_.empty() ? std::string("declgl") :
+						    app_name_;
 	char *pref = SDL_GetPrefPath(app.c_str(), "");
 	if (pref) {
 		std::string path(pref);
@@ -393,7 +394,7 @@ void Engine::ensure_kv_load_started()
 	}
 	kv_load_started_ = true;
 	if (!loader_) {
-		loader_ = std::make_unique<AssetLoader>();
+		loader_ = std::make_unique<AssetLoader>(asset_root_);
 	}
 	DecodeJob job;
 	job.kind = AssetKind::KvLoad;
@@ -405,7 +406,7 @@ void Engine::ensure_kv_load_started()
 void Engine::enqueue_kv_persist()
 {
 	if (!loader_) {
-		loader_ = std::make_unique<AssetLoader>();
+		loader_ = std::make_unique<AssetLoader>(asset_root_);
 	}
 	DecodeJob job;
 	job.kind = AssetKind::KvSave;
@@ -482,7 +483,7 @@ void Engine::dispatch_backend_command(
 		if (!loader_) {
 			// [init_decoders_only] should have been called already,
 			// but be defensive.
-			loader_ = std::make_unique<AssetLoader>();
+			loader_ = std::make_unique<AssetLoader>(asset_root_);
 		}
 		DecodeJob job;
 		job.kind = AssetKind::Texture;
@@ -508,7 +509,7 @@ void Engine::dispatch_backend_command(
 		// also asserts this defensively, but we set it explicitly
 		// for clarity at the call site.
 		if (!loader_) {
-			loader_ = std::make_unique<AssetLoader>();
+			loader_ = std::make_unique<AssetLoader>(asset_root_);
 		}
 		DecodeJob job;
 		job.kind = AssetKind::Font;
@@ -566,7 +567,7 @@ void Engine::dispatch_backend_command(
 		}
 
 		if (!loader_) {
-			loader_ = std::make_unique<AssetLoader>();
+			loader_ = std::make_unique<AssetLoader>(asset_root_);
 		}
 		DecodeJob job;
 		job.kind = AssetKind::Audio;
@@ -671,7 +672,7 @@ void Engine::dispatch_backend_command(
 	case BackendCommand::kLoadFile: {
 		const auto &lf = cmd.load_file();
 		if (!loader_) {
-			loader_ = std::make_unique<AssetLoader>();
+			loader_ = std::make_unique<AssetLoader>(asset_root_);
 		}
 		DecodeJob job;
 		job.kind = AssetKind::File;
@@ -1015,6 +1016,11 @@ void Engine::render(const mlregl::transport::render::Renderable &tree,
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	walker_->render(tree, *render_ctx_);
+}
+
+void Engine::process_ready_assets(std::size_t max_assets_per_frame)
+{
+	drain_ready_assets(max_assets_per_frame);
 }
 
 } // namespace declgl
