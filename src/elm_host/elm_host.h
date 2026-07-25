@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "runtime/loop_hooks.h"
@@ -52,12 +53,11 @@ class ElmHost final : public LoopHooks {
 	void before_view() override;
 	void after_frame() override;
 	std::vector<std::vector<uint8_t> > pull_commands() override;
+	std::vector<std::vector<uint8_t> > pull_audio_commands() override;
 	void deliver_event(const uint8_t *bytes, std::size_t len) override;
 	std::optional<std::vector<uint8_t> > pull_view() override;
 	void on_backend_event(const uint8_t *bytes, std::size_t len) override;
-	void on_audio_event(const uint8_t *, std::size_t) override
-	{
-	}
+	void on_audio_event(const uint8_t *, std::size_t) override;
 	bool should_continue() const override
 	{
 		return !failed_ && !stop_requested_;
@@ -77,8 +77,12 @@ class ElmHost final : public LoopHooks {
 	JSValue app_ = JS_UNDEFINED;
 	JSValue update_port_ = JS_UNDEFINED;
 	JSValue recv_port_ = JS_UNDEFINED;
+	JSValue audio_from_port_ = JS_UNDEFINED;
 	JSValue dispatch_fn_ = JS_UNDEFINED;
 	std::deque<std::vector<uint8_t> > commands_;
+	std::deque<std::vector<uint8_t> > audio_commands_;
+	std::unordered_map<std::string, std::deque<int64_t> >
+		pending_audio_requests_;
 	std::optional<std::vector<uint8_t> > latest_view_;
 	std::vector<Timer> timers_;
 	uint64_t next_timer_id_ = 1;
@@ -117,6 +121,7 @@ class ElmHost final : public LoopHooks {
 	static JSValue js_command(JSContext *, JSValueConst, int,
 				  JSValueConst *);
 	static JSValue js_view(JSContext *, JSValueConst, int, JSValueConst *);
+	static JSValue js_audio(JSContext *, JSValueConst, int, JSValueConst *);
 };
 
 } // namespace declgl

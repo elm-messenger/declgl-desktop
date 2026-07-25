@@ -207,6 +207,7 @@ struct Runtime::Impl {
 	bool pump_events();
 	bool drive_one_frame();
 	void apply_pulled_commands();
+	void apply_pulled_audio_commands();
 
 	bool dispatch_batch(
 		const mlregl::transport::backend::BackendCommandBatch &batch);
@@ -390,6 +391,20 @@ void Runtime::Impl::apply_pulled_commands()
 	}
 }
 
+void Runtime::Impl::apply_pulled_audio_commands()
+{
+	auto blobs = hooks_.pull_audio_commands();
+	if (blobs.empty())
+		return;
+	ensure_engine();
+	const double now_ms = start_ticks_ == 0 ?
+				      0.0 :
+				      static_cast<double>(SDL_GetTicks() -
+						  start_ticks_);
+	for (const auto &blob : blobs)
+		engine_->exec_audio_cmd(blob.data(), blob.size(), now_ms);
+}
+
 bool Runtime::Impl::drive_one_frame()
 {
 	if (quit_requested_ || !hooks_.should_continue())
@@ -399,6 +414,7 @@ bool Runtime::Impl::drive_one_frame()
 	if (!hooks_.should_continue())
 		return false;
 	apply_pulled_commands();
+	apply_pulled_audio_commands();
 	if (quit_requested_)
 		return false;
 
@@ -446,6 +462,7 @@ bool Runtime::Impl::drive_one_frame()
 	if (!hooks_.should_continue())
 		return false;
 	apply_pulled_commands();
+	apply_pulled_audio_commands();
 	if (quit_requested_)
 		return false;
 

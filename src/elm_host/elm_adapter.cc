@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 #include "transport_backend.pb.h"
+#include "transport_audio.pb.h"
 #include "transport_common.pb.h"
 #include "transport_render.pb.h"
 
@@ -89,6 +90,36 @@ bool required_number(JSContext *ctx, JSValueConst obj, const char *key,
 		return true;
 	error = path + "." + key + ": expected finite number";
 	return false;
+}
+
+bool required_integer(JSContext *ctx, JSValueConst obj, const char *key,
+		      const std::string &path, int64_t &out,
+		      std::string &error)
+{
+	Value v = prop(ctx, obj, key);
+	double n = 0;
+	if (number_value(ctx, v.get(), n) && std::trunc(n) == n &&
+	    n >= -9007199254740991.0 && n <= 9007199254740991.0) {
+		out = static_cast<int64_t>(n);
+		return true;
+	}
+	error = path + "." + key + ": expected integer";
+	return false;
+}
+
+bool required_uint32(JSContext *ctx, JSValueConst obj, const char *key,
+		     const std::string &path, uint32_t &out,
+		     std::string &error)
+{
+	int64_t n = 0;
+	if (!required_integer(ctx, obj, key, path, n, error))
+		return false;
+	if (n < 0 || n > UINT32_MAX) {
+		error = path + "." + key + ": expected unsigned 32-bit integer";
+		return false;
+	}
+	out = static_cast<uint32_t>(n);
+	return true;
 }
 
 bool array_length(JSContext *ctx, JSValueConst value, int64_t &length)
@@ -345,6 +376,63 @@ JSValue object(JSContext *ctx)
 void set(JSContext *ctx, JSValueConst obj, const char *key, JSValue value)
 {
 	JS_SetPropertyStr(ctx, obj, key, value);
+}
+
+bool volume_timelines(
+	JSContext *ctx, JSValueConst value,
+	google::protobuf::RepeatedPtrField<
+		mlregl::transport::audio::VolumeTimeline> *out,
+	const std::string &path, std::string &error)
+{
+	int64_t count = 0;
+	if (!array_length(ctx, value, count)) {
+		error = path + ": expected array";
+		return false;
+	}
+	for (int64_t i = 0; i < count; ++i) {
+		Value timeline(ctx, JS_GetPropertyUint32(ctx, value, i));
+		int64_t points = 0;
+		if (!array_length(ctx, timeline.get(), points)) {
+			error = path + "[" + std::to_string(i) + "]: expected array";
+			return false;
+		}
+		auto *native_timeline = out->Add();
+		for (int64_t j = 0; j < points; ++j) {
+			Value point(ctx, JS_GetPropertyUint32(ctx, timeline.get(), j));
+			double time = 0, volume = 0;
+			const std::string pp = path + "[" + std::to_string(i) +
+					       "][" + std::to_string(j) + "]";
+			if (!JS_IsObject(point.get()) ||
+			    !required_number(ctx, point.get(), "time", pp, time,
+					     error) ||
+			    !required_number(ctx, point.get(), "volume", pp, volume,
+					     error))
+				return false;
+			auto *p = native_timeline->add_points();
+			p->set_time(time);
+			p->set_volume(volume);
+		}
+	}
+	return true;
+}
+
+bool loop_config(JSContext *ctx, JSValueConst value,
+		 mlregl::transport::audio::LoopConfig *out,
+		 const std::string &path, std::string &error)
+{
+	if (JS_IsNull(value))
+		return true;
+	if (!JS_IsObject(value)) {
+		error = path + ": expected object or null";
+		return false;
+	}
+	double start = 0, end = 0;
+	if (!required_number(ctx, value, "loopStart", path, start, error) ||
+	    !required_number(ctx, value, "loopEnd", path, end, error))
+		return false;
+	out->set_loop_start(start);
+	out->set_loop_end(end);
+	return true;
 }
 
 } // namespace
@@ -637,6 +725,188 @@ JSValue input_event_to_js(JSContext *ctx,
 	set(ctx, out, "bubbles", JS_NewBool(ctx, true));
 	set(ctx, out, "cancelable", JS_NewBool(ctx, true));
 	set_modifiers();
+	return out;
+}
+
+bool audio_batch_from_js(
+	JSContext *ctx, JSValueConst value,
+	mlregl::transport::audio::AudioCommandBatch &audio,
+	mlregl::transport::backend::BackendCommandBatch &loads,
+	std::vector<AudioLoadRequest> &requests, std::string &error)
+{
+	if (!JS_IsObject(value) || JS_IsArray(value)) {
+		error = "audioPortToJS: expected object";
+		return false;
+	}
+	Value actions_value = prop(ctx, value, "audio");
+	int64_t action_count = 0;
+	if (!array_length(ctx, actions_value.get(), action_count)) {
+		error = "audioPortToJS.audio: expected array";
+		return false;
+	}
+	for (int64_t i = 0; i < action_count; ++i) {
+		Value value_action(
+			ctx, JS_GetPropertyUint32(ctx, actions_value.get(), i));
+		const std::string path =
+			"audioPortToJS.audio[" + std::to_string(i) + "]";
+		if (!JS_IsObject(value_action.get())) {
+			error = path + ": expected object";
+			return false;
+		}
+		std::string kind;
+		uint32_t group = 0;
+		if (!required_string(ctx, value_action.get(), "action", path,
+				     kind, error) ||
+		    !required_uint32(ctx, value_action.get(), "nodeGroupId", path,
+				     group, error))
+			return false;
+		auto *action = audio.add_actions();
+		if (kind == "startSound") {
+			uint32_t buffer = 0;
+			double start_time = 0, start_at = 0, volume = 0,
+			       playback_rate = 0;
+			if (!required_uint32(ctx, value_action.get(), "bufferId",
+					     path, buffer, error) ||
+			    !required_number(ctx, value_action.get(), "startTime",
+					     path, start_time, error) ||
+			    !required_number(ctx, value_action.get(), "startAt", path,
+					     start_at, error) ||
+			    !required_number(ctx, value_action.get(), "volume", path,
+					     volume, error) ||
+			    !required_number(ctx, value_action.get(), "playbackRate",
+					     path, playback_rate, error))
+				return false;
+			auto *start = action->mutable_start_sound();
+			start->set_node_group_id(group);
+			start->set_buffer_id(buffer);
+			start->set_start_time(start_time);
+			start->set_start_at(start_at);
+			start->set_volume(volume);
+			start->set_playback_rate(playback_rate);
+			Value timelines = prop(ctx, value_action.get(),
+					       "volumeTimelines");
+			if (!volume_timelines(ctx, timelines.get(),
+					      start->mutable_volume_timelines(),
+					      path + ".volumeTimelines", error))
+				return false;
+			Value loop = prop(ctx, value_action.get(), "loop");
+			if (!JS_IsNull(loop.get()) &&
+			    !loop_config(ctx, loop.get(), start->mutable_loop(),
+					 path + ".loop", error))
+				return false;
+		} else if (kind == "stopSound") {
+			action->mutable_stop_sound()->set_node_group_id(group);
+		} else if (kind == "setVolume") {
+			double volume = 0;
+			if (!required_number(ctx, value_action.get(), "volume", path,
+					     volume, error))
+				return false;
+			auto *set_volume = action->mutable_set_volume();
+			set_volume->set_node_group_id(group);
+			set_volume->set_volume(volume);
+		} else if (kind == "setVolumeAt") {
+			auto *set_at = action->mutable_set_volume_at();
+			set_at->set_node_group_id(group);
+			Value timelines = prop(ctx, value_action.get(), "volumeAt");
+			if (!volume_timelines(ctx, timelines.get(),
+					      set_at->mutable_volume_at(),
+					      path + ".volumeAt", error))
+				return false;
+		} else if (kind == "setLoopConfig") {
+			auto *set_loop = action->mutable_set_loop_config();
+			set_loop->set_node_group_id(group);
+			Value loop = prop(ctx, value_action.get(), "loop");
+			if (!JS_IsNull(loop.get()) &&
+			    !loop_config(ctx, loop.get(), set_loop->mutable_loop(),
+					 path + ".loop", error))
+				return false;
+		} else if (kind == "setPlaybackRate") {
+			double rate = 0;
+			if (!required_number(ctx, value_action.get(), "playbackRate",
+					     path, rate, error))
+				return false;
+			auto *set_rate = action->mutable_set_playback_rate();
+			set_rate->set_node_group_id(group);
+			set_rate->set_playback_rate(rate);
+		} else {
+			error = path + ".action: unsupported action '" + kind + "'";
+			return false;
+		}
+	}
+
+	Value commands = prop(ctx, value, "audioCmds");
+	int64_t command_count = 0;
+	if (!array_length(ctx, commands.get(), command_count)) {
+		error = "audioPortToJS.audioCmds: expected array";
+		return false;
+	}
+	for (int64_t i = 0; i < command_count; ++i) {
+		Value request(ctx, JS_GetPropertyUint32(ctx, commands.get(), i));
+		const std::string path =
+			"audioPortToJS.audioCmds[" + std::to_string(i) + "]";
+		std::string url;
+		int64_t request_id = 0;
+		if (!JS_IsObject(request.get()) ||
+		    !required_string(ctx, request.get(), "audioUrl", path, url,
+				     error) ||
+		    !required_integer(ctx, request.get(), "requestId", path,
+				      request_id, error))
+			return false;
+		loads.add_commands()->mutable_load_audio()->set_audio_url(url);
+		requests.push_back({ std::move(url), request_id });
+	}
+	return true;
+}
+
+JSValue audio_event_to_js(
+	JSContext *ctx,
+	const mlregl::transport::audio::AudioBackendEvent &event,
+	std::optional<int64_t> request_id, std::string &error)
+{
+	JSValue out = object(ctx);
+	using E = mlregl::transport::audio::AudioBackendEvent;
+	switch (event.kind_case()) {
+	case E::kAudioContextReady:
+		set(ctx, out, "type", JS_NewInt32(ctx, 2));
+		set(ctx, out, "samplesPerSecond",
+		    JS_NewInt32(ctx, event.audio_context_ready().sample_rate()));
+		break;
+	case E::kAudioLoadSuccess:
+		if (!request_id) {
+			error = "audio load success has no pending Elm request";
+			JS_FreeValue(ctx, out);
+			return JS_EXCEPTION;
+		}
+		set(ctx, out, "type", JS_NewInt32(ctx, 1));
+		set(ctx, out, "requestId", JS_NewInt64(ctx, *request_id));
+		set(ctx, out, "bufferId",
+		    JS_NewInt32(ctx, event.audio_load_success().buffer_id()));
+		set(ctx, out, "durationInSeconds",
+		    JS_NewFloat64(ctx, event.audio_load_success().duration()));
+		break;
+	case E::kAudioLoadFailed: {
+		if (!request_id) {
+			error = "audio load failure has no pending Elm request";
+			JS_FreeValue(ctx, out);
+			return JS_EXCEPTION;
+		}
+		set(ctx, out, "type", JS_NewInt32(ctx, 0));
+		set(ctx, out, "requestId", JS_NewInt64(ctx, *request_id));
+		const char *message = "UnknownError";
+		if (event.audio_load_failed().error() ==
+		    mlregl::transport::audio::AUDIO_LOAD_ERROR_NETWORK)
+			message = "NetworkError";
+		else if (event.audio_load_failed().error() ==
+			 mlregl::transport::audio::AUDIO_LOAD_ERROR_FAILED_TO_DECODE)
+			message = "MediaDecodeAudioDataUnknownContentType";
+		set(ctx, out, "error", JS_NewString(ctx, message));
+		break;
+	}
+	default:
+		error = "unsupported native audio event";
+		JS_FreeValue(ctx, out);
+		return JS_EXCEPTION;
+	}
 	return out;
 }
 

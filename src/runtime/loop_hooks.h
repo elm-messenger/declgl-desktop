@@ -75,6 +75,10 @@ class LoopHooks {
 	{
 		return {};
 	}
+	virtual std::vector<std::vector<uint8_t> > pull_audio_commands()
+	{
+		return {};
+	}
 
 	// --- Event egress (input events to the host) -------------------
 	// Called for every SDL input event AND for the per-frame

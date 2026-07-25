@@ -31,6 +31,15 @@ Encountering an unsupported elm-regl command or render node is an application
 error. The player must report the object path and unsupported feature and stop,
 rather than silently omit it and produce incorrect output.
 
+Elm applications may optionally expose the paired elm-audio ports
+`audioPortToJS` and `audioPortFromJS`. The host translates elm-audio's plain
+JavaScript action objects to native audio protobuf commands and native
+context/load events back to elm-audio response objects. Audio asset loads use
+the existing native loader. Because native load events identify requests by
+URL while elm-audio uses integer request IDs, the host keeps a FIFO request-ID
+queue for each URL. Applications without either port do not initialize audio;
+exposing only one port is an initialization error.
+
 ## Goals
 
 1. Load an Elm-generated JavaScript file at application startup. The desktop

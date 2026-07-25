@@ -9,6 +9,7 @@
 #include "elm_host/elm_adapter.h"
 #include "headless_dom.inc"
 #include "log/log.h"
+#include "transport_audio.pb.h"
 #include "transport_backend.pb.h"
 #include "transport_render.pb.h"
 
@@ -63,11 +64,13 @@ ElmHost::~ElmHost()
 		JS_FreeValue(ctx_, timer.callback);
 	timers_.clear();
 	JS_FreeValue(ctx_, dispatch_fn_);
+	JS_FreeValue(ctx_, audio_from_port_);
 	JS_FreeValue(ctx_, recv_port_);
 	JS_FreeValue(ctx_, update_port_);
 	JS_FreeValue(ctx_, app_);
 	JS_FreeContext(ctx_);
 	ctx_ = nullptr;
+	JS_RunGC(rt_);
 	JS_FreeRuntime(rt_);
 	rt_ = nullptr;
 }
@@ -236,6 +239,37 @@ JSValue ElmHost::js_view(JSContext *ctx, JSValueConst, int argc,
 	return JS_UNDEFINED;
 }
 
+JSValue ElmHost::js_audio(JSContext *ctx, JSValueConst, int argc,
+			  JSValueConst *argv)
+{
+	auto *host = self(ctx);
+	if (argc < 1)
+		return JS_ThrowTypeError(
+			ctx, "audioPortToJS callback expects a value");
+	mlregl::transport::audio::AudioCommandBatch audio;
+	mlregl::transport::backend::BackendCommandBatch loads;
+	std::vector<elm::AudioLoadRequest> requests;
+	std::string error;
+	if (!elm::audio_batch_from_js(ctx, argv[0], audio, loads, requests,
+				      error)) {
+		host->fail(std::move(error));
+		return JS_ThrowTypeError(ctx, "%s", host->error_.c_str());
+	}
+	for (auto &request : requests)
+		host->pending_audio_requests_[request.url].push_back(
+			request.request_id);
+	std::string bytes;
+	if (loads.commands_size() > 0) {
+		loads.SerializeToString(&bytes);
+		host->commands_.emplace_back(bytes.begin(), bytes.end());
+	}
+	if (audio.actions_size() > 0) {
+		audio.SerializeToString(&bytes);
+		host->audio_commands_.emplace_back(bytes.begin(), bytes.end());
+	}
+	return JS_UNDEFINED;
+}
+
 bool ElmHost::install_host_api()
 {
 	JSValue global = JS_GetGlobalObject(ctx_);
@@ -291,9 +325,17 @@ bool ElmHost::bind_ports()
 	JSValue view_port = get_port("setView", true);
 	update_port_ = get_port("reglupdate", true);
 	recv_port_ = get_port("recvREGLCmd", true);
+	JSValue audio_to_port = get_port("audioPortToJS", false);
+	audio_from_port_ = get_port("audioPortFromJS", false);
+	const bool has_audio_to = JS_IsObject(audio_to_port);
+	const bool has_audio_from = JS_IsObject(audio_from_port_);
+	if (has_audio_to != has_audio_from)
+		fail("Elm audio requires both 'audioPortToJS' and "
+		     "'audioPortFromJS' ports");
 	if (failed_) {
 		JS_FreeValue(ctx_, command_port);
 		JS_FreeValue(ctx_, view_port);
+		JS_FreeValue(ctx_, audio_to_port);
 		return false;
 	}
 	JSValue subscribe = JS_GetPropertyStr(ctx_, command_port, "subscribe");
@@ -307,6 +349,7 @@ bool ElmHost::bind_ports()
 	if (command_exception) {
 		JS_FreeValue(ctx_, command_port);
 		JS_FreeValue(ctx_, view_port);
+		JS_FreeValue(ctx_, audio_to_port);
 		capture_exception("subscribe execREGLCmd");
 		return false;
 	}
@@ -320,8 +363,25 @@ bool ElmHost::bind_ports()
 	JS_FreeValue(ctx_, command_port);
 	JS_FreeValue(ctx_, view_port);
 	if (exception) {
+		JS_FreeValue(ctx_, audio_to_port);
 		capture_exception("subscribe setView");
 		return false;
+	}
+	if (has_audio_to) {
+		subscribe = JS_GetPropertyStr(ctx_, audio_to_port, "subscribe");
+		callback = JS_NewCFunction(ctx_, js_audio, "declglAudio", 1);
+		result = JS_Call(ctx_, subscribe, audio_to_port, 1, &callback);
+		const bool audio_exception = JS_IsException(result);
+		JS_FreeValue(ctx_, result);
+		JS_FreeValue(ctx_, callback);
+		JS_FreeValue(ctx_, subscribe);
+		JS_FreeValue(ctx_, audio_to_port);
+		if (audio_exception) {
+			capture_exception("subscribe audioPortToJS");
+			return false;
+		}
+	} else {
+		JS_FreeValue(ctx_, audio_to_port);
 	}
 	return true;
 }
@@ -496,6 +556,16 @@ std::vector<std::vector<uint8_t> > ElmHost::pull_commands()
 	return out;
 }
 
+std::vector<std::vector<uint8_t> > ElmHost::pull_audio_commands()
+{
+	std::vector<std::vector<uint8_t> > out;
+	while (!audio_commands_.empty()) {
+		out.push_back(std::move(audio_commands_.front()));
+		audio_commands_.pop_front();
+	}
+	return out;
+}
+
 bool ElmHost::send_port(JSValueConst port, JSValue value, const char *name)
 {
 	JSValue send = JS_GetPropertyStr(ctx_, port, "send");
@@ -575,6 +645,40 @@ void ElmHost::on_backend_event(const uint8_t *bytes, std::size_t len)
 		return;
 	}
 	send_port(recv_port_, value, "recvREGLCmd.send");
+}
+
+void ElmHost::on_audio_event(const uint8_t *bytes, std::size_t len)
+{
+	if (failed_ || !JS_IsObject(audio_from_port_))
+		return;
+	mlregl::transport::audio::AudioBackendEvent event;
+	if (!event.ParseFromArray(bytes, static_cast<int>(len))) {
+		fail("cannot decode native audio event");
+		return;
+	}
+	std::optional<int64_t> request_id;
+	std::string url;
+	using E = mlregl::transport::audio::AudioBackendEvent;
+	if (event.kind_case() == E::kAudioLoadSuccess)
+		url = event.audio_load_success().audio_url();
+	else if (event.kind_case() == E::kAudioLoadFailed)
+		url = event.audio_load_failed().audio_url();
+	if (!url.empty()) {
+		auto it = pending_audio_requests_.find(url);
+		if (it != pending_audio_requests_.end() && !it->second.empty()) {
+			request_id = it->second.front();
+			it->second.pop_front();
+			if (it->second.empty())
+				pending_audio_requests_.erase(it);
+		}
+	}
+	std::string error;
+	JSValue value = elm::audio_event_to_js(ctx_, event, request_id, error);
+	if (JS_IsException(value)) {
+		fail(std::move(error));
+		return;
+	}
+	send_port(audio_from_port_, value, "audioPortFromJS.send");
 }
 
 } // namespace declgl
