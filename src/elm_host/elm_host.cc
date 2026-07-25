@@ -64,6 +64,7 @@ ElmHost::~ElmHost()
 		JS_FreeValue(ctx_, timer.callback);
 	timers_.clear();
 	JS_FreeValue(ctx_, dispatch_fn_);
+	JS_FreeValue(ctx_, data_file_port_);
 	JS_FreeValue(ctx_, audio_from_port_);
 	JS_FreeValue(ctx_, recv_port_);
 	JS_FreeValue(ctx_, update_port_);
@@ -211,11 +212,14 @@ JSValue ElmHost::js_command(JSContext *ctx, JSValueConst, int argc,
 		host->fail(std::move(error));
 		return JS_ThrowTypeError(ctx, "%s", host->error_.c_str());
 	}
+	const bool start =
+		command.kind_case() ==
+		mlregl::transport::backend::BackendCommand::kStartRegl;
 	mlregl::transport::backend::BackendCommandBatch batch;
 	*batch.add_commands() = std::move(command);
 	std::string bytes;
 	batch.SerializeToString(&bytes);
-	host->commands_.emplace_back(bytes.begin(), bytes.end());
+	host->enqueue_command(std::move(bytes), start);
 	return JS_UNDEFINED;
 }
 
@@ -261,12 +265,43 @@ JSValue ElmHost::js_audio(JSContext *ctx, JSValueConst, int argc,
 	std::string bytes;
 	if (loads.commands_size() > 0) {
 		loads.SerializeToString(&bytes);
-		host->commands_.emplace_back(bytes.begin(), bytes.end());
+		host->enqueue_command(std::move(bytes), false);
 	}
 	if (audio.actions_size() > 0) {
 		audio.SerializeToString(&bytes);
 		host->audio_commands_.emplace_back(bytes.begin(), bytes.end());
 	}
+	return JS_UNDEFINED;
+}
+
+JSValue ElmHost::js_load_data_file(JSContext *ctx, JSValueConst, int argc,
+				    JSValueConst *argv)
+{
+	auto *host = self(ctx);
+	if (argc < 1 || !JS_IsObject(argv[0]))
+		return JS_ThrowTypeError(
+			ctx, "loadDataFile callback expects an object");
+	JSValue name_value = JS_GetPropertyStr(ctx, argv[0], "name");
+	JSValue path_value = JS_GetPropertyStr(ctx, argv[0], "path");
+	const std::string name = js_string(ctx, name_value);
+	const std::string path = js_string(ctx, path_value);
+	const bool valid = JS_IsString(name_value) && JS_IsString(path_value);
+	JS_FreeValue(ctx, name_value);
+	JS_FreeValue(ctx, path_value);
+	if (!valid)
+		return JS_ThrowTypeError(
+			ctx, "loadDataFile expects string name and path fields");
+	host->pending_data_files_[path].push_back(name);
+	mlregl::transport::backend::BackendCommandBatch batch;
+	batch.add_commands()->mutable_load_file()->set_path(path);
+	std::string bytes;
+	batch.SerializeToString(&bytes);
+	host->enqueue_command(std::move(bytes), false);
+	return JS_UNDEFINED;
+}
+
+JSValue ElmHost::js_ignore(JSContext *, JSValueConst, int, JSValueConst *)
+{
 	return JS_UNDEFINED;
 }
 
@@ -338,6 +373,21 @@ bool ElmHost::bind_ports()
 		JS_FreeValue(ctx_, audio_to_port);
 		return false;
 	}
+	auto subscribe_port = [&](JSValueConst port, JSCFunction *function,
+				  const char *callback_name,
+				  const char *operation) {
+		JSValue subscribe = JS_GetPropertyStr(ctx_, port, "subscribe");
+		JSValue callback =
+			JS_NewCFunction(ctx_, function, callback_name, 1);
+		JSValue result = JS_Call(ctx_, subscribe, port, 1, &callback);
+		const bool exception = JS_IsException(result);
+		JS_FreeValue(ctx_, result);
+		JS_FreeValue(ctx_, callback);
+		JS_FreeValue(ctx_, subscribe);
+		if (exception)
+			capture_exception(operation);
+		return !exception;
+	};
 	JSValue subscribe = JS_GetPropertyStr(ctx_, command_port, "subscribe");
 	JSValue callback =
 		JS_NewCFunction(ctx_, js_command, "declglCommand", 1);
@@ -382,6 +432,34 @@ bool ElmHost::bind_ports()
 		}
 	} else {
 		JS_FreeValue(ctx_, audio_to_port);
+	}
+
+	JSValue load_data_port = get_port("loadDataFile", false);
+	data_file_port_ = get_port("dataFileLoaded", false);
+	const bool has_load_data = JS_IsObject(load_data_port);
+	const bool has_data_file = JS_IsObject(data_file_port_);
+	if (has_load_data != has_data_file) {
+		JS_FreeValue(ctx_, load_data_port);
+		fail("Elm data loading requires both 'loadDataFile' and "
+		     "'dataFileLoaded' ports");
+		return false;
+	}
+	if (has_load_data &&
+	    !subscribe_port(load_data_port, js_load_data_file,
+			    "declglLoadDataFile", "subscribe loadDataFile")) {
+		JS_FreeValue(ctx_, load_data_port);
+		return false;
+	}
+	JS_FreeValue(ctx_, load_data_port);
+
+	for (const char *name : { "alert", "prompt", "sendInfo" }) {
+		JSValue port = get_port(name, false);
+		if (JS_IsObject(port) &&
+		    !subscribe_port(port, js_ignore, "declglIgnore", name)) {
+			JS_FreeValue(ctx_, port);
+			return false;
+		}
+		JS_FreeValue(ctx_, port);
 	}
 	return true;
 }
@@ -514,7 +592,41 @@ void ElmHost::run_timers(bool include_animation_frame)
 
 std::vector<std::vector<uint8_t> > ElmHost::take_startup_commands()
 {
-	return pull_commands();
+	mlregl::transport::backend::BackendCommandBatch combined;
+	while (!commands_.empty()) {
+		mlregl::transport::backend::BackendCommandBatch batch;
+		const auto &bytes = commands_.front();
+		if (!batch.ParseFromArray(bytes.data(),
+					  static_cast<int>(bytes.size()))) {
+			fail("cannot decode queued Elm startup command");
+			return {};
+		}
+		for (const auto &command : batch.commands())
+			*combined.add_commands() = command;
+		commands_.pop_front();
+	}
+	if (combined.commands_size() == 0)
+		return {};
+	std::string bytes;
+	combined.SerializeToString(&bytes);
+	return { std::vector<uint8_t>(bytes.begin(), bytes.end()) };
+}
+
+void ElmHost::enqueue_command(std::string bytes, bool start)
+{
+	std::vector<uint8_t> payload(bytes.begin(), bytes.end());
+	if (!start_seen_ && !start) {
+		pre_start_commands_.push_back(std::move(payload));
+		return;
+	}
+	commands_.push_back(std::move(payload));
+	if (!start || start_seen_)
+		return;
+	start_seen_ = true;
+	while (!pre_start_commands_.empty()) {
+		commands_.push_back(std::move(pre_start_commands_.front()));
+		pre_start_commands_.pop_front();
+	}
 }
 
 bool ElmHost::on_loop_enter()
@@ -636,6 +748,34 @@ void ElmHost::on_backend_event(const uint8_t *bytes, std::size_t len)
 	mlregl::transport::backend::BackendEvent event;
 	if (!event.ParseFromArray(bytes, static_cast<int>(len))) {
 		fail("cannot decode native backend event");
+		return;
+	}
+	using E = mlregl::transport::backend::BackendEvent;
+	if (event.kind_case() == E::kFileLoaded ||
+	    event.kind_case() == E::kFileLoadFailed) {
+		if (!JS_IsObject(data_file_port_))
+			return;
+		const std::string &path = event.kind_case() == E::kFileLoaded ?
+					  event.file_loaded().path() :
+					  event.file_load_failed().path();
+		auto it = pending_data_files_.find(path);
+		if (it == pending_data_files_.end() || it->second.empty()) {
+			fail("data file response for unrequested path '" + path +
+			     "'");
+			return;
+		}
+		const std::string name = std::move(it->second.front());
+		it->second.pop_front();
+		if (it->second.empty())
+			pending_data_files_.erase(it);
+		JSValue value = JS_NewObject(ctx_);
+		set_property(ctx_, value, "name", JS_NewString(ctx_, name.c_str()));
+		const std::string data = event.kind_case() == E::kFileLoaded ?
+					 event.file_loaded().data() :
+					 std::string();
+		set_property(ctx_, value, "data",
+			     JS_NewStringLen(ctx_, data.data(), data.size()));
+		send_port(data_file_port_, value, "dataFileLoaded.send");
 		return;
 	}
 	std::string error;

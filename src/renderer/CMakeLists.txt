@@ -23,6 +23,7 @@ add_library(declgl_renderer OBJECT
     programs/pixilation_program.cc
     programs/img_fade_program.cc
     programs/textbox_program.cc
+    programs/glsl_es_translator.cc
     programs/dynamic_program.cc
 )
 

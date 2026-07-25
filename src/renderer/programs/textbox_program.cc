@@ -105,8 +105,14 @@ bool TextboxProgram::prepare(const ProgramCallFields &fields,
 	for (const auto &name : font_names) {
 		const FontEntry *fe = ctx.fonts->get(name);
 		if (!fe || !fe->font) {
-			return false; // not yet loaded, drop silently
+			if (missing_font_warnings_.insert(name).second) {
+				DECLGL_LOG_WARN(
+					"textbox font '{}' is not loaded; skipping draw",
+					name);
+			}
+			return false;
 		}
+		missing_font_warnings_.erase(name);
 		if (atlas_key.empty()) {
 			atlas_key = fe->texture_name;
 		} else if (atlas_key != fe->texture_name) {

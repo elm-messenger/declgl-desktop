@@ -52,6 +52,19 @@ Value prop(JSContext *ctx, JSValueConst obj, const char *name)
 	return Value(ctx, JS_GetPropertyStr(ctx, obj, name));
 }
 
+bool empty_object(JSContext *ctx, JSValueConst value)
+{
+	if (!JS_IsObject(value) || JS_IsArray(value))
+		return false;
+	JSPropertyEnum *properties = nullptr;
+	uint32_t count = 0;
+	if (JS_GetOwnPropertyNames(ctx, &properties, &count, value,
+				   JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0)
+		return false;
+	JS_FreePropertyEnum(ctx, properties, count);
+	return count == 0;
+}
+
 bool string_value(JSContext *ctx, JSValueConst value, std::string &out)
 {
 	if (!JS_IsString(value))
@@ -231,6 +244,135 @@ bool add_fields(JSContext *ctx, JSValueConst object,
 	return ok;
 }
 
+enum class ProgramMappingKind { Static, Dynamic, DynamicTexture };
+
+bool add_program_mappings(
+	JSContext *ctx, JSValueConst object, ProgramMappingKind kind,
+	google::protobuf::RepeatedPtrField<
+		mlregl::transport::backend::ProgramValueMapping> *mappings,
+	const std::string &path, std::string &error)
+{
+	if (JS_IsUndefined(object) || JS_IsNull(object))
+		return true;
+	if (!JS_IsObject(object) || JS_IsArray(object)) {
+		error = path + ": expected object";
+		return false;
+	}
+	JSPropertyEnum *properties = nullptr;
+	uint32_t count = 0;
+	if (JS_GetOwnPropertyNames(ctx, &properties, &count, object,
+				   JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0) {
+		error = path + ": cannot enumerate object";
+		return false;
+	}
+	bool ok = true;
+	for (uint32_t i = 0; i < count && ok; ++i) {
+		const char *raw = JS_AtomToCString(ctx, properties[i].atom);
+		if (!raw) {
+			ok = false;
+			break;
+		}
+		std::string key(raw);
+		JS_FreeCString(ctx, raw);
+		Value value(ctx, JS_GetProperty(ctx, object, properties[i].atom));
+		auto *mapping = mappings->Add();
+		mapping->set_key(key);
+		if (kind == ProgramMappingKind::Static) {
+			ok = common_value(ctx, value.get(),
+					  *mapping->mutable_val()->mutable_static_val(),
+					  path + "." + key, error);
+		} else {
+			std::string property;
+			if (!string_value(ctx, value.get(), property)) {
+				error = path + "." + key + ": expected string";
+				ok = false;
+			} else if (kind == ProgramMappingKind::Dynamic) {
+				mapping->mutable_val()->set_dyn_val(std::move(property));
+			} else {
+				mapping->mutable_val()->set_dyn_textval(
+					std::move(property));
+			}
+		}
+	}
+	JS_FreePropertyEnum(ctx, properties, count);
+	return ok;
+}
+
+bool program_value(JSContext *ctx, JSValueConst program, const char *static_key,
+		   const char *dynamic_key,
+		   mlregl::transport::backend::ProgramValue *out,
+		   std::string &error)
+{
+	Value dynamic = prop(ctx, program, dynamic_key);
+	if (!JS_IsUndefined(dynamic.get()) && !JS_IsNull(dynamic.get())) {
+		std::string property;
+		if (!string_value(ctx, dynamic.get(), property)) {
+			error = std::string("execREGLCmd.proto.") + dynamic_key +
+				": expected string";
+			return false;
+		}
+		out->set_dyn_val(std::move(property));
+		return true;
+	}
+	Value value = prop(ctx, program, static_key);
+	if (JS_IsUndefined(value.get()) || JS_IsNull(value.get()))
+		return true;
+	return common_value(ctx, value.get(), *out->mutable_static_val(),
+			    std::string("execREGLCmd.proto.") + static_key,
+			    error);
+}
+
+bool custom_program(JSContext *ctx, JSValueConst value,
+		    mlregl::transport::backend::CreateProgram &out,
+		    std::string &error)
+{
+	std::string name;
+	if (!required_string(ctx, value, "_n", "execREGLCmd", name, error))
+		return false;
+	Value proto = prop(ctx, value, "proto");
+	if (!JS_IsObject(proto.get()) || JS_IsArray(proto.get())) {
+		error = "execREGLCmd.proto: expected object";
+		return false;
+	}
+	std::string frag, vert;
+	if (!required_string(ctx, proto.get(), "frag", "execREGLCmd.proto",
+			     frag, error) ||
+	    !required_string(ctx, proto.get(), "vert", "execREGLCmd.proto",
+			     vert, error))
+		return false;
+	out.set_name(std::move(name));
+	auto *program = out.mutable_program();
+	program->set_frag(std::move(frag));
+	program->set_vert(std::move(vert));
+	program->set_shader_language(
+		mlregl::transport::backend::SHADER_LANGUAGE_GLSL_ES_100);
+
+	auto add = [&](const char *key, ProgramMappingKind kind,
+		       auto *mappings) {
+		Value object = prop(ctx, proto.get(), key);
+		return add_program_mappings(ctx, object.get(), kind, mappings,
+					    std::string("execREGLCmd.proto.") + key,
+					    error);
+	};
+	if (!add("uniforms", ProgramMappingKind::Static,
+		 program->mutable_uniforms()) ||
+	    !add("uniformsDyn", ProgramMappingKind::Dynamic,
+		 program->mutable_uniforms()) ||
+	    !add("uniformsDynTexture", ProgramMappingKind::DynamicTexture,
+		 program->mutable_uniforms()) ||
+	    !add("attributes", ProgramMappingKind::Static,
+		 program->mutable_attributes()) ||
+	    !add("attributesDyn", ProgramMappingKind::Dynamic,
+		 program->mutable_attributes()))
+		return false;
+	return program_value(ctx, proto.get(), "primitive", "primitiveDyn",
+			     program->mutable_primitive(), error) &&
+	       program_value(ctx, proto.get(), "elements", "elementsDyn",
+			     program->mutable_elements(), error) &&
+	       program_value(ctx, proto.get(), "count", "countDyn",
+			     program->mutable_count(), error);
+}
+
 bool atomic(JSContext *ctx, JSValueConst value,
 	    mlregl::transport::render::AtomicRenderable &out,
 	    const std::string &path, bool clear, std::string &error)
@@ -289,7 +431,8 @@ bool renderable(JSContext *ctx, JSValueConst value,
 			Value child(ctx, JS_GetPropertyUint32(
 						 ctx, children.get(), i));
 			if (JS_IsNull(child.get()) ||
-			    JS_IsUndefined(child.get()))
+			    JS_IsUndefined(child.get()) ||
+			    empty_object(ctx, child.get()))
 				continue;
 			if (!renderable(ctx, child.get(),
 					*group->add_children(),
@@ -450,8 +593,8 @@ bool command_from_js(JSContext *ctx, JSValueConst value,
 	if (!required_string(ctx, value, "_c", "execREGLCmd", kind, error))
 		return false;
 	if (kind == "createGLProgram") {
-		error = "execREGLCmd: custom shaders are not supported";
-		return false;
+		return custom_program(ctx, value, *out.mutable_create_program(),
+				      error);
 	}
 	if (kind == "start") {
 		double width, height, fbo;
@@ -588,6 +731,10 @@ bool view_from_js(JSContext *ctx, JSValueConst value,
 		  mlregl::transport::render::Renderable &out,
 		  std::string &error)
 {
+	if (empty_object(ctx, value)) {
+		out.Clear();
+		return true;
+	}
 	return renderable(ctx, value, out, "setView", error);
 }
 
@@ -613,6 +760,11 @@ backend_event_to_js(JSContext *ctx,
 		set(ctx, response, "font",
 		    JS_NewString(ctx, event.font_loaded().name().c_str()));
 		break;
+	case E::kProgramCreated:
+		set(ctx, root, "_c", JS_NewString(ctx, "createGLProgram"));
+		set(ctx, response, "_n",
+		    JS_NewString(ctx, event.program_created().name().c_str()));
+		break;
 	case E::kTextureLoadfail:
 		error = "texture '" + event.texture_loadfail().name() +
 			"' failed: " + event.texture_loadfail().reason();
@@ -622,6 +774,12 @@ backend_event_to_js(JSContext *ctx,
 	case E::kFontLoadfail:
 		error = "font '" + event.font_loadfail().name() +
 			"' failed: " + event.font_loadfail().reason();
+		JS_FreeValue(ctx, root);
+		JS_FreeValue(ctx, response);
+		return JS_EXCEPTION;
+	case E::kProgramCreatefail:
+		error = "custom program '" + event.program_createfail().name() +
+			"' failed to compile";
 		JS_FreeValue(ctx, root);
 		JS_FreeValue(ctx, response);
 		return JS_EXCEPTION;

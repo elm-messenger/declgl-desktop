@@ -533,7 +533,7 @@ void Engine::dispatch_backend_command(
 		if (decl_programs_ && cp.has_program()) {
 			auto prog = std::make_unique<programs::DynamicProgram>(
 				cp.name(), cp.program());
-			if (prog->compile()) {
+			if (prog->valid() && prog->compile()) {
 				decl_programs_->register_program(
 					std::move(prog));
 				ev.mutable_program_created()->set_name(

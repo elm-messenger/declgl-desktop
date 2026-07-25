@@ -21,7 +21,6 @@ The first implementation supports Elm applications that:
 The following are intentionally out of scope for the first implementation:
 
 - save-as-texture render nodes (`_c = 4`);
-- custom shaders and `createGLProgram`;
 - rendering HTML, CSS, SVG, or Canvas DOM nodes;
 - browser layout, accessibility, navigation, or browser developer tools;
 - network APIs such as `fetch`, `XMLHttpRequest`, and WebSocket; and
@@ -39,6 +38,13 @@ the existing native loader. Because native load events identify requests by
 URL while elm-audio uses integer request IDs, the host keeps a FIFO request-ID
 queue for each URL. Applications without either port do not initialize audio;
 exposing only one port is an initialization error.
+
+Messenger-generated applications may also expose `loadDataFile` and
+`dataFileLoaded`. The host maps these to the native `LoadFile` command and
+returns `{ name, data }`, using an empty data string on load failure to match
+the browser helper. `alert`, `prompt`, and `sendInfo` outgoing ports are
+subscribed as no-ops; the desktop player does not create browser dialogs or
+DOM UI for them.
 
 ## Goals
 
@@ -305,14 +311,23 @@ setView.c[3].color: expected an array of four numbers
 | `_c: "config"` | `ConfigRegl` | Initially maps frame interval only |
 | `_c: "loadTexture"` | `LoadTexture` | Maps name, path, filters, and optional crop |
 | `_c: "loadFont"` | `LoadFont` | Maps name, atlas path, and JSON path |
+| `_c: "createGLProgram"` | `CreateProgram` | Marks Elm/WebGL shader source as GLSL ES 1.00 |
 
-`createGLProgram` is unsupported in the first version and causes a clear
-application error.
+`Program.shader_language` defaults to native GLSL, preserving existing
+protobuf callers. Elm-created programs use `SHADER_LANGUAGE_GLSL_ES_100`; the
+desktop renderer lexically translates WebGL 1 declarations, precision
+qualifiers, texture functions, and fragment outputs to GLSL 330 before normal
+OpenGL compilation. Unsupported ES extensions and outputs fail with a source
+line diagnostic rather than being rewritten speculatively.
 
 Commands are converted into a `BackendCommandBatch` and queued. Startup
-commands are drained before entering the loop. Commands produced during a
-frame are returned by `LoopHooks::pull_commands()` at the next safe runtime
-dispatch point.
+commands are drained before entering the loop. Elm port effects can arrive in
+an order different from their source `Cmd.batch`, so `ElmHost` buffers
+pre-start commands and emits one startup batch with `StartRegl` first and all
+earlier commands following in their original order. This behavior is confined
+to the Elm host and does not change the generic runtime or ml-regl transport.
+Commands produced during a frame are returned by
+`LoopHooks::pull_commands()` at the next safe runtime dispatch point.
 
 ### Render Trees
 
@@ -432,8 +447,8 @@ Fatal startup errors include:
 - native window/OpenGL initialization failure.
 
 Fatal runtime application errors include malformed command/view objects,
-unsupported save-as-texture or custom-program commands, uncaught JavaScript
-exceptions, and execution-limit interruption.
+unsupported save-as-texture nodes, custom-program translation or compilation
+failures, uncaught JavaScript exceptions, and execution-limit interruption.
 
 Asset I/O/decode failures are reported with the logical asset name, resolved
 relative path, and native reason. Until elm-regl gains failure response values,
@@ -515,15 +530,14 @@ BUILD_ELM_PLAYER=ON
 
 ### Integration Tests
 
-Compile and run desktop variants of elm-regl examples that only use built-in
-programs:
+Compile and run desktop variants of elm-regl examples:
 
 - Basic;
 - Camera;
-- Mask, after replacing any custom program usage;
+- Mask;
 - Text;
 - Stress; and
-- relevant BugFixes cases without custom shaders.
+- relevant BugFixes cases.
 
 Tests should cover both `Platform.worker` and `Browser.element`. The latter must
 demonstrate that its virtual DOM updates and event handlers run while the only
@@ -539,8 +553,6 @@ The following can be designed separately after the built-in Elm runtime is
 stable:
 
 - save-as-texture and persistent render-target ownership;
-- custom shader support and GLSL ES-to-OpenGL translation;
-- audio ports for Elm;
 - richer gamepad, text-input, wheel, and touch events;
 - a typed runtime/engine interface that removes the native protobuf
   serialize/parse step for Elm; and

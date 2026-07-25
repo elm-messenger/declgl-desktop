@@ -1,6 +1,9 @@
 // renderer/programs/textbox_program.h
 #pragma once
 
+#include <string>
+#include <unordered_set>
+
 #include "renderer/program_base.h"
 #include "builtin_shaders.h"
 
@@ -29,6 +32,9 @@ class TextboxProgram : public ProgramBase {
 	bool prepare(const ProgramCallFields &fields, const RenderContext &ctx,
 		     const BuiltinTextures &builtin_textures,
 		     DrawState &out_state) override;
+
+    private:
+	std::unordered_set<std::string> missing_font_warnings_;
 };
 
 } // namespace programs

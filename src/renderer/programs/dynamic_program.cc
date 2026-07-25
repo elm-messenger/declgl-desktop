@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "log/log.h"
+#include "renderer/programs/glsl_es_translator.h"
 #include "resources/texture.h"
 #include "resources/texture_registry.h"
 
@@ -50,9 +51,29 @@ const ProgramCallField *find_dyn_field(const ProgramCallFields &fields,
 
 DynamicProgram::DynamicProgram(std::string name, const BackendProgram &program)
 	: name_(std::move(name))
-	, vert_src_(program.vert())
-	, frag_src_(program.frag())
 {
+	using Language = mlregl::transport::backend::ShaderLanguage;
+	if (program.shader_language() == Language::SHADER_LANGUAGE_GLSL_ES_100) {
+		if (!translate_glsl_es_100(program.vert(), ShaderStage::Vertex,
+					   vert_src_, translation_error_)) {
+			translation_error_ = "vertex shader: " + translation_error_;
+		} else if (!translate_glsl_es_100(
+				   program.frag(), ShaderStage::Fragment, frag_src_,
+				   translation_error_)) {
+			translation_error_ = "fragment shader: " + translation_error_;
+		}
+	} else if (program.shader_language() ==
+		   Language::SHADER_LANGUAGE_GLSL) {
+		vert_src_ = program.vert();
+		frag_src_ = program.frag();
+	} else {
+		translation_error_ = "unsupported shader language " +
+			std::to_string(static_cast<int>(program.shader_language()));
+	}
+	if (!translation_error_.empty())
+		DECLGL_LOG_ERROR("dynamic program '{}': {}", name_,
+				 translation_error_);
+
 	uniforms_.reserve(program.uniforms_size());
 	for (const auto &mapping : program.uniforms()) {
 		uniforms_.push_back(make_mapping(mapping));

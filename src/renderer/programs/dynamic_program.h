@@ -21,6 +21,14 @@ class DynamicProgram : public ProgramBase {
 	using BackendProgram = mlregl::transport::backend::Program;
 
 	DynamicProgram(std::string name, const BackendProgram &program);
+	bool valid() const
+	{
+		return translation_error_.empty();
+	}
+	const std::string &translation_error() const
+	{
+		return translation_error_;
+	}
 
 	std::string_view name() const override
 	{
@@ -86,6 +94,7 @@ class DynamicProgram : public ProgramBase {
 	std::string name_;
 	std::string vert_src_;
 	std::string frag_src_;
+	std::string translation_error_;
 	std::vector<Mapping> uniforms_;
 	std::vector<Mapping> attributes_;
 	std::optional<Mapping> primitive_;
