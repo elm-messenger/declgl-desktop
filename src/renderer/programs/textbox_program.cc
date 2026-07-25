@@ -105,6 +105,8 @@ bool TextboxProgram::prepare(const ProgramCallFields &fields,
 	for (const auto &name : font_names) {
 		const FontEntry *fe = ctx.fonts->get(name);
 		if (!fe || !fe->font) {
+			if (ctx.fonts->is_pending(name))
+				return false;
 			if (missing_font_warnings_.insert(name).second) {
 				DECLGL_LOG_WARN(
 					"textbox font '{}' is not loaded; skipping draw",

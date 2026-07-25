@@ -65,6 +65,50 @@ bool empty_object(JSContext *ctx, JSValueConst value)
 	return count == 0;
 }
 
+int browser_key_code(std::string_view key)
+{
+	if (key.size() == 1) {
+		const unsigned char c = static_cast<unsigned char>(key[0]);
+		if (c >= 'a' && c <= 'z')
+			return c - 'a' + 'A';
+		if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+			return c;
+		if (c == ' ')
+			return 32;
+	}
+	if (key == "Backspace")
+		return 8;
+	if (key == "Tab")
+		return 9;
+	if (key == "Return" || key == "Enter")
+		return 13;
+	if (key == "Escape")
+		return 27;
+	if (key == "Space")
+		return 32;
+	if (key == "Left")
+		return 37;
+	if (key == "Up")
+		return 38;
+	if (key == "Right")
+		return 39;
+	if (key == "Down")
+		return 40;
+	if (key == "Delete")
+		return 46;
+	if (key.size() >= 2 && key[0] == 'F') {
+		int number = 0;
+		for (std::size_t i = 1; i < key.size(); ++i) {
+			if (key[i] < '0' || key[i] > '9')
+				return 0;
+			number = number * 10 + key[i] - '0';
+		}
+		if (number >= 1 && number <= 24)
+			return 111 + number;
+	}
+	return 0;
+}
+
 bool string_value(JSContext *ctx, JSValueConst value, std::string &out)
 {
 	if (!JS_IsString(value))
@@ -857,20 +901,33 @@ JSValue input_event_to_js(JSContext *ctx,
 						 event.key_down().code() :
 						 event.key_up().code();
 		std::string code = key;
+		std::string browser_key = key;
 		if (key.size() == 1 && key[0] >= 'A' && key[0] <= 'Z')
 			code = "Key" + key;
-		else if (key == "Up")
+		else if (key == "Up") {
 			code = "ArrowUp";
-		else if (key == "Down")
+			browser_key = code;
+		} else if (key == "Down") {
 			code = "ArrowDown";
-		else if (key == "Left")
+			browser_key = code;
+		} else if (key == "Left") {
 			code = "ArrowLeft";
-		else if (key == "Right")
+			browser_key = code;
+		} else if (key == "Right") {
 			code = "ArrowRight";
-		else if (key == "Return")
+			browser_key = code;
+		} else if (key == "Return") {
 			code = "Enter";
-		set(ctx, out, "key", JS_NewString(ctx, key.c_str()));
+			browser_key = "Enter";
+		} else if (key == "Space") {
+			code = "Space";
+			browser_key = " ";
+		}
+		const int key_code = browser_key_code(key);
+		set(ctx, out, "key", JS_NewString(ctx, browser_key.c_str()));
 		set(ctx, out, "code", JS_NewString(ctx, code.c_str()));
+		set(ctx, out, "keyCode", JS_NewInt32(ctx, key_code));
+		set(ctx, out, "which", JS_NewInt32(ctx, key_code));
 		set(ctx, out, "repeat", JS_NewBool(ctx, false));
 		set(ctx, out, "location", JS_NewInt32(ctx, 0));
 		break;

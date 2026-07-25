@@ -13,6 +13,7 @@ void FontRegistry::register_font(std::string_view name,
 	entry.font = std::move(font);
 	entry.texture_name = std::string(texture_name);
 	map_[std::string(name)] = std::move(entry);
+	pending_.erase(std::string(name));
 }
 
 const FontEntry *FontRegistry::get(std::string_view name) const
@@ -21,8 +22,24 @@ const FontEntry *FontRegistry::get(std::string_view name) const
 	return it == map_.end() ? nullptr : &it->second;
 }
 
+void FontRegistry::mark_pending(std::string_view name)
+{
+	pending_.insert(std::string(name));
+}
+
+void FontRegistry::clear_pending(std::string_view name)
+{
+	pending_.erase(std::string(name));
+}
+
+bool FontRegistry::is_pending(std::string_view name) const
+{
+	return pending_.count(std::string(name)) != 0;
+}
+
 bool FontRegistry::unregister_font(std::string_view name)
 {
+	pending_.erase(std::string(name));
 	return map_.erase(std::string(name)) > 0;
 }
 

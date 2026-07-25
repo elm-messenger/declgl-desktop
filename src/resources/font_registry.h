@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace declgl
 {
@@ -44,6 +45,9 @@ class FontRegistry {
 	// Returns nullptr if not registered. Pointer remains valid as long
 	// as [name] is not unregistered or replaced.
 	const FontEntry *get(std::string_view name) const;
+	void mark_pending(std::string_view name);
+	void clear_pending(std::string_view name);
+	bool is_pending(std::string_view name) const;
 
 	bool unregister_font(std::string_view name);
 
@@ -54,6 +58,7 @@ class FontRegistry {
 
     private:
 	std::unordered_map<std::string, FontEntry> map_;
+	std::unordered_set<std::string> pending_;
 };
 
 } // namespace declgl

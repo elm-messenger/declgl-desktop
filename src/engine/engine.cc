@@ -511,6 +511,8 @@ void Engine::dispatch_backend_command(
 		if (!loader_) {
 			loader_ = std::make_unique<AssetLoader>(asset_root_);
 		}
+		if (fonts_)
+			fonts_->mark_pending(lf.name());
 		DecodeJob job;
 		job.kind = AssetKind::Font;
 		job.name = lf.name();
@@ -873,6 +875,8 @@ void Engine::drain_ready_assets(std::size_t max_items)
 				fail->set_name(r.name);
 				fail->set_reason(reason);
 			} else {
+				if (fonts_)
+					fonts_->clear_pending(r.name);
 				auto *fail = ev.mutable_font_loadfail();
 				fail->set_name(r.name);
 				fail->set_reason(reason);
@@ -942,6 +946,7 @@ void Engine::drain_ready_assets(std::size_t max_items)
 				"async load '{}': font atlas upload failed",
 				r.name);
 			BackendEvent ev;
+			fonts_->clear_pending(r.name);
 			auto *fail = ev.mutable_font_loadfail();
 			fail->set_name(r.name);
 			fail->set_reason("font atlas upload failed");
