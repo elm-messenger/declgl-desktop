@@ -340,6 +340,8 @@ bool DynamicProgram::prepare(const ProgramCallFields &fields,
 	GLsizei explicit_count = 0;
 	resolve_count(fields, explicit_count);
 
+	set_builtin_uniforms(ctx, out_state);
+
 	for (const auto &uniform : uniforms_) {
 		if (!apply_uniform(uniform, fields, ctx, out_state)) {
 			return false;
