@@ -39,22 +39,25 @@ source ~/.zshrc
 
 ### Linux
 
-For apt-based distributions, the one-command setup and build path is:
+For Ubuntu/Debian (`apt-get`) and Fedora (`dnf`), the one-command setup and
+build path is:
 
 ```bash
 ./scripts/build_linux.sh
 ```
 
-The script installs the
-system packages needed by vcpkg and SDL3's Linux source build, bootstraps vcpkg
-at `$VCPKG_ROOT` or `~/vcpkg`, then runs the `linux-release` CMake preset. To build
-another Linux preset:
+The script detects the package manager, installs the system packages needed by
+vcpkg and SDL3's Linux source build, bootstraps vcpkg at `$VCPKG_ROOT` or
+`~/vcpkg`, then runs the `linux-release` CMake preset. To build another Linux
+preset:
 
 ```bash
 DECLGL_LINUX_PRESET=linux-debug ./scripts/build_linux.sh
 ```
 
-Manual setup uses the same package set:
+Manual setup uses the same package set.
+
+#### Ubuntu/Debian
 
 ```bash
 sudo apt-get update
@@ -67,7 +70,25 @@ sudo apt-get install -y --no-install-recommends \
     libwayland-dev libx11-dev libxcursor-dev libxext-dev libxfixes-dev \
     libxft-dev libxi-dev libxinerama-dev libxkbcommon-dev libxrandr-dev libxss-dev \
     libxtst-dev wayland-protocols libdecor-0-dev
+```
 
+#### Fedora
+
+```bash
+sudo dnf install -y \
+    gcc gcc-c++ make ca-certificates cmake autoconf autoconf-archive automake \
+    curl git libtool ninja-build pkgconf-pkg-config python3 tar unzip zip ocaml \
+    alsa-lib-devel dbus-devel libdrm-devel libglvnd-devel mesa-libEGL-devel \
+    mesa-libgbm-devel mesa-libGL-devel ibus-devel pipewire-devel \
+    pulseaudio-libs-devel systemd-devel wayland-devel libX11-devel \
+    libXcursor-devel libXext-devel libXfixes-devel libXft-devel libXi-devel \
+    libXinerama-devel libxkbcommon-devel libXrandr-devel libXScrnSaver-devel \
+    libXtst-devel wayland-protocols-devel libdecor-devel
+```
+
+Then install vcpkg on either distribution:
+
+```bash
 git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
 cd ~/vcpkg && ./bootstrap-vcpkg.sh -disableMetrics
 

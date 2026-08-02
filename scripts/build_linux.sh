@@ -6,62 +6,108 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
-if ! command -v apt-get >/dev/null 2>&1; then
-    echo "error: apt-get was not found; install the README dependencies manually for your distro" >&2
-    exit 1
-fi
-
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 preset="${DECLGL_LINUX_PRESET:-linux-release}"
 vcpkg_root="${VCPKG_ROOT:-$HOME/vcpkg}"
 
-required_packages=(
-    build-essential
-    ca-certificates
-    cmake
-    autoconf
-    autoconf-archive
-    automake
-    curl
-    git
-    libtool
-    ninja-build
-    pkg-config
-    python3
-    tar
-    unzip
-    zip
-    ocaml-nox
-    libasound2-dev
-    libdbus-1-dev
-    libdrm-dev
-    libegl1-mesa-dev
-    libgbm-dev
-    libgl1-mesa-dev
-    libgles2-mesa-dev
-    libibus-1.0-dev
-    libpipewire-0.3-dev
-    libpulse-dev
-    libsndio-dev
-    libudev-dev
-    libwayland-dev
-    libx11-dev
-    libxcursor-dev
-    libxext-dev
-    libxfixes-dev
-    libxft-dev
-    libxi-dev
-    libxinerama-dev
-    libxkbcommon-dev
-    libxrandr-dev
-    libxss-dev
-    libxtst-dev
-    wayland-protocols
-)
-
-optional_packages=(
-    libdecor-0-dev
-)
+if command -v apt-get >/dev/null 2>&1; then
+    package_manager="apt"
+    required_packages=(
+        build-essential
+        ca-certificates
+        cmake
+        autoconf
+        autoconf-archive
+        automake
+        curl
+        git
+        libtool
+        ninja-build
+        pkg-config
+        python3
+        tar
+        unzip
+        zip
+        ocaml-nox
+        libasound2-dev
+        libdbus-1-dev
+        libdrm-dev
+        libegl1-mesa-dev
+        libgbm-dev
+        libgl1-mesa-dev
+        libgles2-mesa-dev
+        libibus-1.0-dev
+        libpipewire-0.3-dev
+        libpulse-dev
+        libsndio-dev
+        libudev-dev
+        libwayland-dev
+        libx11-dev
+        libxcursor-dev
+        libxext-dev
+        libxfixes-dev
+        libxft-dev
+        libxi-dev
+        libxinerama-dev
+        libxkbcommon-dev
+        libxrandr-dev
+        libxss-dev
+        libxtst-dev
+        wayland-protocols
+    )
+    optional_packages=(libdecor-0-dev)
+elif command -v dnf >/dev/null 2>&1; then
+    package_manager="dnf"
+    required_packages=(
+        gcc
+        gcc-c++
+        make
+        ca-certificates
+        cmake
+        autoconf
+        autoconf-archive
+        automake
+        curl
+        git
+        libtool
+        ninja-build
+        pkgconf-pkg-config
+        python3
+        tar
+        unzip
+        zip
+        ocaml
+        alsa-lib-devel
+        dbus-devel
+        libdrm-devel
+        libglvnd-devel
+        mesa-libEGL-devel
+        mesa-libgbm-devel
+        mesa-libGL-devel
+        ibus-devel
+        pipewire-devel
+        pulseaudio-libs-devel
+        systemd-devel
+        wayland-devel
+        libX11-devel
+        libXcursor-devel
+        libXext-devel
+        libXfixes-devel
+        libXft-devel
+        libXi-devel
+        libXinerama-devel
+        libxkbcommon-devel
+        libXrandr-devel
+        libXScrnSaver-devel
+        libXtst-devel
+        wayland-protocols-devel
+    )
+    optional_packages=(libdecor-devel)
+else
+    echo "error: no supported package manager found; install the README dependencies manually" >&2
+    echo "       supported package managers: apt-get (Ubuntu/Debian) and dnf (Fedora)" >&2
+    exit 1
+fi
 
 if [[ "${EUID}" -eq 0 ]]; then
     sudo_cmd=()
@@ -75,20 +121,33 @@ fi
 
 installable_optional_packages=()
 for package in "${optional_packages[@]}"; do
-    if apt-cache show "$package" >/dev/null 2>&1; then
+    if [[ "$package_manager" == "apt" ]] && apt-cache show "$package" >/dev/null 2>&1; then
+        installable_optional_packages+=("$package")
+    elif [[ "$package_manager" == "dnf" ]] && dnf -q list --available "$package" >/dev/null 2>&1; then
         installable_optional_packages+=("$package")
     else
-        echo "info: optional apt package '$package' is not available on this distro release; skipping"
+        echo "info: optional $package_manager package '$package' is not available; skipping"
     fi
 done
 
-echo "==> Updating apt package lists"
-"${sudo_cmd[@]}" apt-get update
+if [[ "$package_manager" == "apt" ]]; then
+    echo "==> Updating apt package lists"
+    "${sudo_cmd[@]}" apt-get update
+else
+    echo "==> Updating dnf package metadata"
+    "${sudo_cmd[@]}" dnf makecache
+fi
 
 echo "==> Installing build dependencies"
-"${sudo_cmd[@]}" apt-get install -y --no-install-recommends \
-    "${required_packages[@]}" \
-    "${installable_optional_packages[@]}"
+if [[ "$package_manager" == "apt" ]]; then
+    "${sudo_cmd[@]}" apt-get install -y --no-install-recommends \
+        "${required_packages[@]}" \
+        "${installable_optional_packages[@]}"
+else
+    "${sudo_cmd[@]}" dnf install -y \
+        "${required_packages[@]}" \
+        "${installable_optional_packages[@]}"
+fi
 
 if [[ ! -d "$vcpkg_root/.git" ]]; then
     echo "==> Cloning vcpkg into $vcpkg_root"
