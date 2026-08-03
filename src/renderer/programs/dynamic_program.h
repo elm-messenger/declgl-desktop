@@ -83,6 +83,7 @@ class DynamicProgram : public ProgramBase {
 	bool apply_uniform(const Mapping &mapping,
 			   const ProgramCallFields &fields,
 			   const RenderContext &ctx,
+			   const BuiltinTextures &builtin_textures,
 			   DrawState &out_state) const;
 	bool resolve_primitive(const ProgramCallFields &fields,
 			       GLenum &out_primitive) const;

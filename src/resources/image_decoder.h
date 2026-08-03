@@ -44,6 +44,7 @@ struct DecodedImage {
 //
 // On any failure (file missing, decode error, OOM) returns an empty
 // DecodedImage; check [.ok()]. Diagnostic output goes to stderr.
-DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop);
+DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop,
+			       bool flip_y = false);
 
 } // namespace declgl

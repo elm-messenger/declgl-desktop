@@ -53,14 +53,22 @@ DynamicProgram::DynamicProgram(std::string name, const BackendProgram &program)
 	: name_(std::move(name))
 {
 	using Language = mlregl::transport::backend::ShaderLanguage;
-	if (program.shader_language() == Language::SHADER_LANGUAGE_GLSL_ES_100) {
+	std::optional<GlslEs100Identifiers> es_identifiers;
+	if (program.shader_language() ==
+	    Language::SHADER_LANGUAGE_GLSL_ES_100) {
+		es_identifiers = choose_glsl_es_100_identifiers(program.vert(),
+								program.frag());
 		if (!translate_glsl_es_100(program.vert(), ShaderStage::Vertex,
-					   vert_src_, translation_error_)) {
-			translation_error_ = "vertex shader: " + translation_error_;
-		} else if (!translate_glsl_es_100(
-				   program.frag(), ShaderStage::Fragment, frag_src_,
-				   translation_error_)) {
-			translation_error_ = "fragment shader: " + translation_error_;
+					   *es_identifiers, vert_src_,
+					   translation_error_)) {
+			translation_error_ =
+				"vertex shader: " + translation_error_;
+		} else if (!translate_glsl_es_100(program.frag(),
+						  ShaderStage::Fragment,
+						  *es_identifiers, frag_src_,
+						  translation_error_)) {
+			translation_error_ =
+				"fragment shader: " + translation_error_;
 		}
 	} else if (program.shader_language() ==
 		   Language::SHADER_LANGUAGE_GLSL) {
@@ -68,7 +76,8 @@ DynamicProgram::DynamicProgram(std::string name, const BackendProgram &program)
 		frag_src_ = program.frag();
 	} else {
 		translation_error_ = "unsupported shader language " +
-			std::to_string(static_cast<int>(program.shader_language()));
+				     std::to_string(static_cast<int>(
+					     program.shader_language()));
 	}
 	if (!translation_error_.empty())
 		DECLGL_LOG_ERROR("dynamic program '{}': {}", name_,
@@ -76,12 +85,22 @@ DynamicProgram::DynamicProgram(std::string name, const BackendProgram &program)
 
 	uniforms_.reserve(program.uniforms_size());
 	for (const auto &mapping : program.uniforms()) {
-		uniforms_.push_back(make_mapping(mapping));
+		Mapping value = make_mapping(mapping);
+		if (es_identifiers) {
+			value.key = translate_glsl_es_100_identifier(
+				value.key, *es_identifiers);
+		}
+		uniforms_.push_back(std::move(value));
 	}
 
 	attributes_.reserve(program.attributes_size());
 	for (const auto &mapping : program.attributes()) {
-		attributes_.push_back(make_mapping(mapping));
+		Mapping value = make_mapping(mapping);
+		if (es_identifiers) {
+			value.key = translate_glsl_es_100_identifier(
+				value.key, *es_identifiers);
+		}
+		attributes_.push_back(std::move(value));
 	}
 
 	if (program.has_primitive()) {
@@ -243,6 +262,7 @@ DynamicProgram::resolve_value(const Mapping &mapping,
 bool DynamicProgram::apply_uniform(const Mapping &mapping,
 				   const ProgramCallFields &fields,
 				   const RenderContext &ctx,
+				   const BuiltinTextures &builtin_textures,
 				   DrawState &out_state) const
 {
 	if (mapping.kind == MappingKind::DynTexture) {
@@ -263,8 +283,23 @@ bool DynamicProgram::apply_uniform(const Mapping &mapping,
 	}
 
 	ResolvedValue resolved = resolve_value(mapping, fields);
-	if (!resolved.value)
+	if (!resolved.value) {
+		// uniformsDyn maps an arbitrary GLSL uniform name (mapping.key/loc)
+		// to a runtime property (mapping.prop). The render graph injects its
+		// FBOs as the same texture/t1/t2 properties used by ml-regl-js.
+		GLuint builtin_texture = 0;
+		if (mapping.kind == MappingKind::DynValue) {
+			if (mapping.prop == "texture")
+				builtin_texture = builtin_textures.texture;
+			else if (mapping.prop == "t1")
+				builtin_texture = builtin_textures.t1;
+			else if (mapping.prop == "t2")
+				builtin_texture = builtin_textures.t2;
+		}
+		if (builtin_texture != 0)
+			out_state.set_uniform_tex(mapping.loc, builtin_texture);
 		return true;
+	}
 
 	if (resolved.value->kind_case() == Value::kBoolValue) {
 		out_state.set_uniform_i1(mapping.loc,
@@ -331,7 +366,7 @@ bool DynamicProgram::resolve_indices(const ProgramCallFields &fields,
 
 bool DynamicProgram::prepare(const ProgramCallFields &fields,
 			     const RenderContext &ctx,
-			     const BuiltinTextures & /*builtin_textures*/,
+			     const BuiltinTextures &builtin_textures,
 			     DrawState &out_state)
 {
 	out_state.primitive = GL_TRIANGLES;
@@ -343,7 +378,8 @@ bool DynamicProgram::prepare(const ProgramCallFields &fields,
 	set_builtin_uniforms(ctx, out_state);
 
 	for (const auto &uniform : uniforms_) {
-		if (!apply_uniform(uniform, fields, ctx, out_state)) {
+		if (!apply_uniform(uniform, fields, ctx, builtin_textures,
+				   out_state)) {
 			return false;
 		}
 	}

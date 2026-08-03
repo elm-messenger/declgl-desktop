@@ -98,7 +98,6 @@ class ElmHost final : public LoopHooks {
 	bool stop_requested_ = false;
 	std::size_t frame_count_ = 0;
 	std::string error_;
-	std::chrono::steady_clock::time_point interrupt_deadline_;
 
 	bool eval_file(const std::filesystem::path &path);
 	bool eval_source(const char *source, std::size_t len, const char *name);
@@ -117,7 +116,6 @@ class ElmHost final : public LoopHooks {
 	void enqueue_command(std::string bytes, bool start);
 
 	static ElmHost *self(JSContext *ctx);
-	static int interrupt_handler(JSRuntime *, void *opaque);
 	static JSValue js_now(JSContext *, JSValueConst, int, JSValueConst *);
 	static JSValue js_time_origin(JSContext *, JSValueConst, int,
 				      JSValueConst *);

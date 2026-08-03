@@ -13,9 +13,35 @@ This report covers the four prebuilt Messenger projects under
 Each project was tested with the existing macOS player at
 `build/mac-release/declgl-player`. The projects were not rebuilt.
 
-## Summary
+## Resolution
 
-The projects do not all fail for the same reason:
+Resolved on 2026-08-03:
+
+- GLSL ES identifiers named `texture` or `textureProj` are renamed to a
+  collision-free internal identifier during GLSL 330 translation. Program
+  uniform and attribute mappings follow the same rename.
+- Custom-program asset samplers use `uniformsDynTexture` and resolve their
+  string-valued call fields through the texture registry. Dynamic effects and
+  compositors instead use the `uniformsDyn` mapping's runtime property to bind
+  graph-injected framebuffers (`texture`, `t1`, or `t2`); the GLSL uniform key
+  remains arbitrary.
+- The Elm QuickJS host no longer installs a time-based interrupt handler.
+  Startup, DOM events, ticks, timers, pending jobs, resize handlers, and port
+  callbacks may run without a deadline; a non-terminating callback will block
+  the player rather than fail with `InternalError: interrupted`.
+- The SVG and runtime-referenced WebP images in the four test projects were
+  converted to PNG and their Elm resource manifests were updated.
+- The Opus files in `p2team07` were transcoded to Ogg Vorbis. The valid Vorbis
+  audio stream in `p2team03/assets/audio/button.ogg` was extracted from its
+  Theora/Vorbis container into a pure Ogg Vorbis asset.
+
+All four projects complete bounded Linux player runs with the project directory
+supplied as `--asset-root`. The original failure analysis remains below for
+reference.
+
+## Original Summary
+
+The projects did not all fail for the same reason:
 
 | Project | First fatal error with the correct asset root | Other observed or confirmed blockers |
 | --- | --- | --- |

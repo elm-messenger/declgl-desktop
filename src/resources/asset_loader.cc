@@ -343,7 +343,7 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 			return;
 		}
 		DecodedImage img =
-			decode_image_file(resolved->string(), job.crop);
+			decode_image_file(resolved->string(), job.crop, job.flip_y);
 		if (!img.ok()) {
 			out.error = "decode_image_file";
 			return;

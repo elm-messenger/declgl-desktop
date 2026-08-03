@@ -28,7 +28,8 @@ void cxx_free(uint8_t *p)
 
 } // namespace
 
-DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
+DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop,
+			       bool flip_y)
 {
 	DecodedImage out;
 
@@ -48,7 +49,7 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
 		!(crop.x == 0 && crop.y == 0 && crop.width == w &&
 		  crop.height == h);
 
-	if (!want_crop) {
+	if (!want_crop && !flip_y) {
 		out.pixels = std::unique_ptr<uint8_t[], void (*)(uint8_t *)>(
 			raw, &stb_free);
 		out.width = w;
@@ -58,10 +59,10 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
 
 	// Clip the crop to the source rectangle. Negative offsets are
 	// clamped to 0; over-runs are clamped to (w,h).
-	const int sx = std::clamp(crop.x, 0, w);
-	const int sy = std::clamp(crop.y, 0, h);
-	const int ex = std::clamp(crop.x + crop.width, 0, w);
-	const int ey = std::clamp(crop.y + crop.height, 0, h);
+	const int sx = want_crop ? std::clamp(crop.x, 0, w) : 0;
+	const int sy = want_crop ? std::clamp(crop.y, 0, h) : 0;
+	const int ex = want_crop ? std::clamp(crop.x + crop.width, 0, w) : w;
+	const int ey = want_crop ? std::clamp(crop.y + crop.height, 0, h) : h;
 	const int cw = std::max(0, ex - sx);
 	const int ch = std::max(0, ey - sy);
 
@@ -81,10 +82,9 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop)
 	}
 
 	for (int row = 0; row < ch; ++row) {
-		// JS cropped texture loading uses createImageBitmap(...,
-		// { imageOrientation: "flipY" }) before uploading the sub-image. Mirror
-		// that here so cropped texture resources have the same orientation as the
-		// JS backend.
+		// Cropped loads have historically mirrored createImageBitmap(...,
+		// { imageOrientation: "flipY" }). Full-image loads reverse rows only
+		// when their host runtime explicitly requests WebGL flipY parity.
 		const int src_row = sy + (ch - 1 - row);
 		const uint8_t *src = raw + (src_row * w + sx) * 4;
 		uint8_t *dst = buf + (row * cw) * 4;

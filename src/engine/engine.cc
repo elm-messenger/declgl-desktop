@@ -440,6 +440,7 @@ void Engine::dispatch_backend_command(
 		// unset / proto3-default callers get the new sane
 		// behaviour automatically.
 		bool premultiply = true;
+		bool flip_y = false;
 		if (lt.has_options()) {
 			const auto &o = lt.options();
 			min_opt = o.min();
@@ -452,14 +453,15 @@ void Engine::dispatch_backend_command(
 				crop.height = c.height();
 			}
 			premultiply = !o.no_premultiply_alpha();
+			flip_y = o.flip_y();
 		}
 
 		{
 			DECLGL_LOG_INFO(
-				"load_texture name={} url={} mag={} min={}, crop=({},{},{}x{}, premultiply={})",
+				"load_texture name={} url={} mag={} min={}, crop=({},{},{}x{}, premultiply={}, flip_y={})",
 				lt.name(), lt.url(), describe_mag(mag_opt),
 				describe_min(min_opt), crop.x, crop.y,
-				crop.width, crop.height, premultiply);
+				crop.width, crop.height, premultiply, flip_y);
 		}
 
 		// Hand the decode off to the worker thread. The GL-side
@@ -480,6 +482,7 @@ void Engine::dispatch_backend_command(
 		job.name = lt.name();
 		job.image_url = lt.url();
 		job.crop = crop;
+		job.flip_y = flip_y;
 		job.premultiply_alpha = premultiply;
 		job.min_filter_enum = static_cast<int>(min_opt);
 		job.mag_filter_enum = static_cast<int>(mag_opt);
