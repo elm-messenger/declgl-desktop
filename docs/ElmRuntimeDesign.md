@@ -128,7 +128,7 @@ declgl-player --script app.js [--module Main] [--asset-root assets]
   `Main`.
 - The player constructs Messenger flags internally. `timeStamp` is the launch
   wall-clock time and `info` comes from the app-scoped persistent store.
-- `--asset-root` defaults to the script's directory.
+- `--asset-root` defaults to the process working directory.
 - `--app-name` controls the window/persistence application identity.
 - `--fullscreen` starts the native SDL window in fullscreen mode.
 
@@ -403,13 +403,9 @@ last valid view remains active unless Elm explicitly sends `null`.
 
 ## Assets and Paths
 
-The current loader resolves assets relative to the executable. For a player
-that loads an external project, assets must instead resolve relative to an
-explicit application asset root.
-
-Refactor `AssetLoader` to receive an asset root at construction. The Elm player
-uses `--asset-root` or the script directory. The OCaml path retains its current
-executable-directory default.
+`AssetLoader` receives an optional asset root at construction. Both the Elm
+player and the OCaml path use the process working directory by default; the
+player can override it with `--asset-root`.
 
 Existing path safety rules remain mandatory:
 
@@ -513,7 +509,7 @@ BUILD_ELM_PLAYER=ON
 
 ### Phase 5: Packaging and Hardening
 
-- Add explicit asset-root configuration while preserving OCaml defaults.
+- Add explicit asset-root configuration with a working-directory default.
 - Validate shutdown, reload failure paths, and resource completion ordering.
 - Add release packaging for Linux, macOS, and Windows.
 - Document the supported browser and elm-regl subset.

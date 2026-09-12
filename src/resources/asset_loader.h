@@ -207,13 +207,9 @@ class AssetLoader {
 	void worker_main();
 	void process(DecodeJob &job, ReadyAsset &out);
 
-	// Asset paths from the wire are confined to this root (which is
-	// SDL_GetBasePath() — the directory containing the running
-	// executable). Captured once at construction; never mutated so
-	// the worker thread reads it without synchronization. Empty if
-	// SDL couldn't determine the base path; in that case the worker
-	// rejects every relative-path request rather than silently
-	// reading the cwd.
+	// Asset paths from the wire are confined to this root. An omitted root
+	// resolves to the current working directory at construction time. The
+	// value is then immutable so the worker can read it without synchronization.
 	std::filesystem::path asset_root_;
 
 	std::thread worker_;

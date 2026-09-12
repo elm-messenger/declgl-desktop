@@ -57,23 +57,15 @@ read_kv_store_value(const std::filesystem::path &path, std::string_view key)
 
 AssetLoader::AssetLoader(std::filesystem::path asset_root)
 {
-	// Snapshot the asset root once at construction so the worker
-	// thread can resolve paths without grabbing SDL state itself.
-	// SDL_GetBasePath returns the directory containing the running
-	// executable (with a trailing separator); the buffer is owned
-	// by SDL and lives for the lifetime of the process, so we just
-	// copy it into our path. We canonicalize so the
-	// std::filesystem::relative() containment check below is
-	// symbol-comparable across the two paths it sees.
-	if (!asset_root.empty()) {
-		std::error_code ec;
+	// Snapshot and canonicalize the root once so later working-directory
+	// changes cannot alter how queued jobs resolve paths.
+	std::error_code ec;
+	if (asset_root.empty()) {
+		asset_root = std::filesystem::current_path(ec);
+	}
+	if (!ec && !asset_root.empty()) {
 		auto canon = std::filesystem::weakly_canonical(asset_root, ec);
 		asset_root_ = ec ? std::move(asset_root) : std::move(canon);
-	} else if (const char *base = SDL_GetBasePath()) {
-		std::error_code ec;
-		std::filesystem::path p(base);
-		auto canon = std::filesystem::weakly_canonical(p, ec);
-		asset_root_ = ec ? p : canon;
 	}
 	worker_ = std::thread([this] { worker_main(); });
 }

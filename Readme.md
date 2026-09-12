@@ -197,6 +197,7 @@ application is embedded in the player binary.
 Optional arguments are:
 
 - `--module Name` to select the Elm module, defaulting to `Main`;
+- `--asset-root path` to override the current working directory used for assets;
 - `--app-name name` to select the persistence namespace;
 - `--fullscreen` to create the SDL window in fullscreen mode;
 - `--frames count` to stop after a bounded number of frames, primarily for
@@ -209,8 +210,8 @@ rendering comes from elm-regl objects sent through `setView`.
 The current Elm runtime supports built-in elm-regl programs, groups, effects,
 compositors, textures, fonts, and clear commands. Custom shaders
 (`createGLProgram`) and save-as-texture render nodes (`_c = 4`) are rejected
-with an explicit error. Asset paths are package-relative and confined to
-`--asset-root`.
+with an explicit error. Asset paths are relative to the current working
+directory and confined to it, unless `--asset-root` supplies another root.
 
 Configure with `-DBUILD_ELM_PLAYER=OFF` to build only the existing OCaml
 backend. See [docs/ElmRuntimeDesign.md](docs/ElmRuntimeDesign.md) for the

@@ -65,13 +65,12 @@ std::optional<Options> parse_options(int argc, char **argv)
 	options.script = std::filesystem::absolute(options.script, ec);
 	if (ec)
 		return std::nullopt;
-	if (options.asset_root.empty())
-		options.asset_root = options.script.parent_path();
-	else
+	if (!options.asset_root.empty()) {
 		options.asset_root =
 			std::filesystem::absolute(options.asset_root, ec);
-	if (ec)
-		return std::nullopt;
+		if (ec)
+			return std::nullopt;
+	}
 	if (options.app_name.empty())
 		options.app_name = options.script.stem().string();
 	return options;
