@@ -2,6 +2,7 @@
 build/
 build-*/
 out/
+/frames/
 
 # vcpkg manifest installed cache (generated under build/)
 vcpkg_installed/

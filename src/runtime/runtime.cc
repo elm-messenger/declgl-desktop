@@ -24,6 +24,7 @@
 #include "engine/engine.h"
 #include "log/log.h"
 #include "renderer/render_context.h"
+#include "runtime/frame_capture.h"
 #include "transport_backend.pb.h"
 #include "transport_render.pb.h"
 
@@ -178,6 +179,8 @@ struct Runtime::Impl {
 	// means manual ms target — we sleep after SwapWindow until the
 	// frame budget is consumed.
 	double pacing_interval_ms_ = -1.0;
+	FrameCapture frame_capture_;
+	std::uint64_t frame_number_ = 0;
 
 	// Maximum ready asset jobs to finish at the start of each frame.
 	// 0 means unlimited.
@@ -420,6 +423,8 @@ bool Runtime::Impl::drive_one_frame()
 
 	ProfileSample sample{};
 	sample.frame = profiling().frame_counter++;
+	const std::uint64_t frame_number = frame_number_++;
+	Uint64 frame_capture_ns = 0;
 
 	const Uint64 t0 = SDL_GetTicksNS();
 	hooks_.before_events();
@@ -478,6 +483,9 @@ bool Runtime::Impl::drive_one_frame()
 				engine_->render(r, max_assets_per_frame_);
 				const Uint64 t_render_end = SDL_GetTicksNS();
 				sample.render_ns = t_render_end - t_view_end;
+				frame_capture_.capture(
+					frame_number, engine_->sdl_window(), r);
+				frame_capture_ns = SDL_GetTicksNS() - t_render_end;
 			} else {
 				DECLGL_LOG_ERROR("view: parse failed ({} B)",
 						 view_bytes->size());
@@ -498,9 +506,11 @@ bool Runtime::Impl::drive_one_frame()
 		SDL_GL_SwapWindow(window);
 	const Uint64 t3 = SDL_GetTicksNS();
 	if (sample.render_ns == 0 && sample.view_ns > 0) {
-		sample.swap_ns = t3 - (t2 + sample.view_ns);
+		sample.swap_ns = t3 - (t2 + sample.view_ns) - frame_capture_ns;
 	} else {
-		sample.swap_ns = t3 - (t2 + sample.view_ns + sample.render_ns);
+		sample.swap_ns = t3 -
+			 (t2 + sample.view_ns + sample.render_ns) -
+			 frame_capture_ns;
 	}
 
 	profiling_record(sample);
@@ -736,6 +746,8 @@ void Runtime::run()
 
 	impl_->start_ticks_ = SDL_GetTicks();
 	impl_->loop_running_ = true;
+	impl_->frame_number_ = 0;
+	impl_->frame_capture_.configure_from_environment();
 	profiling_init();
 	while (impl_->drive_one_frame()) {
 		// Body intentionally empty — drive_one_frame does it all.

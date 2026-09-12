@@ -203,6 +203,13 @@ Optional arguments are:
 - `--frames count` to stop after a bounded number of frames, primarily for
   automated runs.
 
+Set `DECLGL_SAVE_FRAME` to a positive integer to capture rendered frames under
+the current working directory's `frames` directory. The number is the capture
+interval: `1` saves every frame, `2` saves every other frame, and `0` or an
+unset variable disables capture. `DECLGL_SAVE_FRAME_FORMAT` selects `bmp`,
+`rendertree`, or `both` and defaults to `both`. BMP captures use the `.bmp`
+extension; render-tree text captures use `.render-tree.json`.
+
 `Browser.element` applications run against a headless DOM. SDL input is
 dispatched through that DOM, but DOM nodes are never displayed. All visible
 rendering comes from elm-regl objects sent through `setView`.

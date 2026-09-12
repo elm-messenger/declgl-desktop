@@ -6,6 +6,8 @@
 # into a Runtime instance.
 
 add_library(declgl_runtime OBJECT
+    frame_capture.cc
+    frame_capture.h
     loop_hooks.h
     runtime.h
     runtime.cc
@@ -26,4 +28,5 @@ target_link_libraries(declgl_runtime
         declgl_proto
         declgl_log
         SDL3::SDL3
+        nlohmann_json::nlohmann_json
 )
