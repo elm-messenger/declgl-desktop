@@ -57,6 +57,10 @@ DECLGL_LINUX_PRESET=linux-debug ./scripts/build_linux.sh
 
 Manual setup uses the same package set.
 
+The Linux build script temporarily enables PipeWire and PulseAudio in vcpkg's
+SDL3 port. Current upstream vcpkg releases disable SDL's automatic detection
+of both backends, even when their development packages are installed.
+
 #### Ubuntu/Debian
 
 ```bash

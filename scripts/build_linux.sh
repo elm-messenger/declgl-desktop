@@ -159,6 +159,30 @@ if [[ ! -x "$vcpkg_root/vcpkg" ]]; then
     "$vcpkg_root/bootstrap-vcpkg.sh" -disableMetrics
 fi
 
+# Temporary workaround for vcpkg's SDL3 port, which unconditionally disables
+# these audio backends even though this script installs their development packages.
+sdl3_portfile="$vcpkg_root/ports/sdl3/portfile.cmake"
+if [[ ! -f "$sdl3_portfile" ]]; then
+    echo "error: SDL3 vcpkg port was not found at $sdl3_portfile" >&2
+    exit 1
+fi
+
+enable_sdl3_backend() {
+    local backend_name="$1"
+    local cmake_option="$2"
+
+    if grep -q -- "-D${cmake_option}=OFF" "$sdl3_portfile"; then
+        echo "==> Temporarily enabling $backend_name in vcpkg's SDL3 port"
+        sed -i "s/-D${cmake_option}=OFF/-D${cmake_option}=ON/" "$sdl3_portfile"
+    elif ! grep -q -- "-D${cmake_option}=ON" "$sdl3_portfile"; then
+        echo "error: vcpkg's SDL3 $backend_name setting has changed; update the workaround in this script" >&2
+        exit 1
+    fi
+}
+
+enable_sdl3_backend "PipeWire" "SDL_PIPEWIRE"
+enable_sdl3_backend "PulseAudio" "SDL_PULSEAUDIO"
+
 export VCPKG_ROOT="$vcpkg_root"
 export PATH="$VCPKG_ROOT:$PATH"
 
