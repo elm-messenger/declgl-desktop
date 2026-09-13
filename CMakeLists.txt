@@ -63,6 +63,7 @@ if(BUILD_ELM_PLAYER)
 endif()
 
 find_package(SDL3      CONFIG REQUIRED)
+find_package(ixwebsocket CONFIG REQUIRED)
 
 # Bring in the modern target-based protobuf_generate() helper.
 include("${Protobuf_DIR}/protobuf-generate.cmake")
@@ -158,7 +159,7 @@ add_custom_command(
         --vcpkg-lib "${_VCPKG_LIB}"
         --ar "${CMAKE_AR}"
         --ranlib "${CMAKE_RANLIB}"
-        --packages protobuf-lite sdl3
+        --packages protobuf-lite sdl3 ixwebsocket zlib
     DEPENDS declgl_base "${_DECLGL_BUNDLE_SCRIPT}"
     VERBATIM
 )

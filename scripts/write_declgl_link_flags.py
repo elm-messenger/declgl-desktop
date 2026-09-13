@@ -153,7 +153,7 @@ def render_lines(
         append_unique(flags, ["-lasmrun"])
     
     slibs = flags_not_bundled_into_archive(
-        vcpkg_lib, pkg_config_libs(vcpkg_lib, "protobuf-lite", "sdl3")
+        vcpkg_lib, pkg_config_libs(vcpkg_lib, "protobuf-lite", "sdl3", "ixwebsocket", "zlib")
     )
     append_unique(flags, slibs)
     if is_apple:

@@ -210,6 +210,14 @@ unset variable disables capture. `DECLGL_SAVE_FRAME_FORMAT` selects `bmp`,
 `rendertree`, or `both` and defaults to `both`. BMP captures use the `.bmp`
 extension; render-tree text captures use `.render-tree.json`.
 
+For the optional MCP/control integration, set `DECLGL_CONTROL_URL=ws://127.0.0.1:PORT`
+and either `DECLGL_DEBUG=1` or `DECLGL_REMOTE_CONTROL=1`.
+The native host connects outbound to that URL and exchanges JSON control
+messages at frame boundaries. `printf` and `Regl_debug.log` remain available
+on stdout; `Regl_debug.publish_state` is also sent as a structured `state`
+event. See the repository README for the shared command list and response
+envelopes.
+
 `Browser.element` applications run against a headless DOM. SDL input is
 dispatched through that DOM, but DOM nodes are never displayed. All visible
 rendering comes from elm-regl objects sent through `setView`.

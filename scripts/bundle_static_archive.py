@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--packages",
         nargs="+",
-        default=["protobuf-lite", "sdl3"],
+        default=["protobuf-lite", "sdl3", "ixwebsocket", "zlib"],
         help="pkg-config packages whose static archives should be bundled",
     )
     return parser.parse_args()

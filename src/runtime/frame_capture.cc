@@ -263,4 +263,14 @@ void FrameCapture::capture(std::uint64_t frame_number, SDL_Window *window,
 	}
 }
 
+std::string renderable_to_json_string(const Renderable &tree)
+{
+	return renderable_to_json(tree).dump();
+}
+
+bool save_screenshot(SDL_Window *window, const std::filesystem::path &path)
+{
+	return save_back_buffer(path, window);
+}
+
 } // namespace declgl

@@ -41,6 +41,7 @@
 #include "log/log.h"
 #include "runtime/loop_hooks.h"
 #include "runtime/runtime.h"
+#include "runtime/control_client.h"
 
 namespace
 {
@@ -193,5 +194,13 @@ extern "C" CAMLprim value declgl_ship_audio_cmd(value v_bytes)
 
 	runtime().dispatch_audio(p, n);
 
+	CAMLreturn(Val_unit);
+}
+
+extern "C" CAMLprim value declgl_debug_emit(value v_string)
+{
+	CAMLparam1(v_string);
+	const char *line = String_val(v_string);
+	declgl::declgl_debug_emit_line(line, caml_string_length(v_string));
 	CAMLreturn(Val_unit);
 }

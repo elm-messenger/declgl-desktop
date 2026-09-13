@@ -8,6 +8,10 @@
     "glm",
     "nlohmann-json",
     "quill",
-    "quickjs-ng"
+    "quickjs-ng",
+    {
+      "name": "ixwebsocket",
+      "default-features": false
+    }
   ]
 }

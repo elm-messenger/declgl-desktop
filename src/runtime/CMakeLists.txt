@@ -9,6 +9,8 @@ add_library(declgl_runtime OBJECT
     frame_capture.cc
     frame_capture.h
     loop_hooks.h
+    control_client.h
+    control_client.cc
     runtime.h
     runtime.cc
 )
@@ -29,4 +31,5 @@ target_link_libraries(declgl_runtime
         declgl_log
         SDL3::SDL3
         nlohmann_json::nlohmann_json
+        ixwebsocket::ixwebsocket
 )

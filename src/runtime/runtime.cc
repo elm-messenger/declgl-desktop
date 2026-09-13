@@ -8,15 +8,18 @@
 #include "runtime/runtime.h"
 
 #include "runtime/loop_hooks.h"
+#include "runtime/control_client.h"
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <vector>
@@ -181,6 +184,14 @@ struct Runtime::Impl {
 	double pacing_interval_ms_ = -1.0;
 	FrameCapture frame_capture_;
 	std::uint64_t frame_number_ = 0;
+	ControlClient &control_ = control_client();
+	bool paused_ = false;
+	std::uint64_t step_budget_ = 0;
+	bool controlled_time_ = false;
+	double controlled_time_ms_ = 0.0;
+	double controlled_dt_ms_ = 16.6666667;
+	mlregl::transport::render::Renderable latest_render_tree_;
+	bool has_latest_render_tree_ = false;
 
 	// Maximum ready asset jobs to finish at the start of each frame.
 	// 0 means unlimited.
@@ -209,6 +220,7 @@ struct Runtime::Impl {
 
 	bool pump_events();
 	bool drive_one_frame();
+	void process_control_commands();
 	void apply_pulled_commands();
 	void apply_pulled_audio_commands();
 
@@ -217,6 +229,134 @@ struct Runtime::Impl {
 };
 
 // ---------------------------------------------------------------------------
+
+void Runtime::Impl::process_control_commands()
+{
+	using json = nlohmann::json;
+	for (const std::string &text : control_.poll_commands()) {
+		json command;
+		try {
+			command = json::parse(text);
+		} catch (const std::exception &error) {
+			DECLGL_LOG_WARN("control: invalid JSON: {}", error.what());
+			continue;
+		}
+		if (!command.is_object()) {
+			DECLGL_LOG_WARN("control: command must be a JSON object");
+			continue;
+		}
+		const json id = command.contains("id") ? command["id"] : json();
+		std::string method;
+		if (command.contains("method") && command["method"].is_string())
+			method = command["method"].get<std::string>();
+		else if (command.contains("command") && command["command"].is_string())
+			method = command["command"].get<std::string>();
+		const json params = command.value("params", json::object());
+		auto respond = [&](bool ok, const json &payload) {
+			json response = { { "type", "response" }, { "id", id },
+						  { "ok", ok } };
+			response[ok ? "result" : "error"] = payload;
+			control_.send_json(response);
+		};
+		try {
+		if (method == "pause") {
+			paused_ = true;
+			respond(true, { { "paused", true } });
+		} else if (method == "resume") {
+			paused_ = false;
+			step_budget_ = 0;
+			respond(true, { { "paused", false } });
+		} else if (method == "quit") {
+			quit_requested_ = true;
+			hooks_.on_quit();
+			respond(true, { { "quit", true } });
+		} else if (method == "step") {
+			paused_ = true;
+			if (!controlled_time_) {
+				controlled_time_ = true;
+				controlled_time_ms_ = 0.0;
+			}
+			std::uint64_t frames = 1;
+			if (params.is_object() && params.contains("frames") &&
+			    params["frames"].is_number_unsigned())
+				frames = std::min<std::uint64_t>(
+					100000, params["frames"].get<std::uint64_t>());
+			step_budget_ += std::max<std::uint64_t>(1, frames);
+			if (params.contains("dt_ms"))
+				controlled_dt_ms_ = params["dt_ms"].get<double>();
+			respond(true, { { "queued", step_budget_ } });
+		} else if (method == "set_time") {
+			controlled_time_ms_ = params.value("ms", 0.0);
+			controlled_time_ = true;
+			respond(true, { { "time_ms", controlled_time_ms_ } });
+		} else if (method == "get_state") {
+			json result = json::object();
+			const std::string state = control_.latest_state();
+			if (!state.empty()) {
+				try { result["published"] = json::parse(state); }
+				catch (...) { result["published"] = state; }
+			}
+			result["paused"] = paused_;
+			result["frame"] = frame_number_;
+			result["time_ms"] = controlled_time_ ? controlled_time_ms_ :
+						     (start_ticks_ == 0 ? 0.0 :
+						      static_cast<double>(SDL_GetTicks() -
+									  start_ticks_));
+			result["logs"] = control_.recent_logs();
+			respond(true, result);
+		} else if (method == "get_render_tree") {
+			json result = { { "available", has_latest_render_tree_ } };
+			if (has_latest_render_tree_)
+				result["tree"] = json::parse(
+					renderable_to_json_string(latest_render_tree_));
+			respond(true, result);
+		} else if (method == "screenshot") {
+			std::filesystem::path path = std::filesystem::current_path() /
+				("mcp_frame_" + std::to_string(frame_number_) + ".bmp");
+			if (params.contains("path"))
+				path = params["path"].get<std::string>();
+			const bool saved = save_screenshot(
+				engine_ ? engine_->sdl_window() : nullptr, path);
+			respond(saved, saved ? json({ { "path", path.string() } }) :
+					 json({ { "message", "screenshot failed" } }));
+		} else if (method == "input") {
+			using mlregl::transport::backend::Event;
+			Event event;
+			const std::string kind = params.value("kind", std::string());
+			if (kind == "key_down" || kind == "key_up") {
+				auto *key = kind == "key_down" ? event.mutable_key_down() :
+							      event.mutable_key_up();
+				key->set_code(params.value("code", std::string()));
+			} else if (kind == "mouse_down" || kind == "mouse_up") {
+				auto *mouse = kind == "mouse_down" ? event.mutable_mouse_down() :
+								 event.mutable_mouse_up();
+				mouse->set_button(params.value("button", 1u));
+				mouse->set_x(params.value("x", 0.0));
+				mouse->set_y(params.value("y", 0.0));
+			} else if (kind == "mouse_move") {
+				auto *mouse = event.mutable_mouse_move();
+				mouse->set_x(params.value("x", 0.0));
+				mouse->set_y(params.value("y", 0.0));
+			} else {
+				respond(false, { { "message", "unknown input kind" } });
+				continue;
+			}
+			std::string bytes;
+			if (event.SerializeToString(&bytes))
+				hooks_.deliver_event(
+					reinterpret_cast<const uint8_t *>(bytes.data()),
+					bytes.size());
+			respond(true, { { "delivered", true } });
+		} else if (!method.empty()) {
+			respond(false, { { "message", "unknown method" } });
+		} else {
+			respond(false, { { "message", "missing method" } });
+		}
+		} catch (const std::exception &error) {
+			respond(false, { { "message", error.what() } });
+		}
+	}
+}
 
 void Runtime::Impl::ensure_engine()
 {
@@ -416,10 +556,21 @@ bool Runtime::Impl::drive_one_frame()
 	hooks_.before_frame();
 	if (!hooks_.should_continue())
 		return false;
+	process_control_commands();
 	apply_pulled_commands();
 	apply_pulled_audio_commands();
 	if (quit_requested_)
 		return false;
+	if (paused_ && step_budget_ == 0) {
+		// Pause freezes update/render advancement, but input remains live so
+		// a paused game can still receive physical keyboard/mouse events.
+		if (!pump_events())
+			return false;
+		SDL_Delay(10);
+		return true;
+	}
+	if (step_budget_ > 0)
+		--step_budget_;
 
 	ProfileSample sample{};
 	sample.frame = profiling().frame_counter++;
@@ -435,7 +586,7 @@ bool Runtime::Impl::drive_one_frame()
 	const Uint64 t1 = SDL_GetTicksNS();
 	sample.events_ns = t1 - t0;
 
-	const double now_ms =
+	const double now_ms = controlled_time_ ? controlled_time_ms_ :
 		static_cast<double>(SDL_GetTicks() - start_ticks_);
 
 	{
@@ -478,6 +629,8 @@ bool Runtime::Impl::drive_one_frame()
 			if (r.ParseFromArray(
 				    view_bytes->data(),
 				    static_cast<int>(view_bytes->size()))) {
+				latest_render_tree_ = r;
+				has_latest_render_tree_ = true;
 				const Uint64 t_view_end = SDL_GetTicksNS();
 				sample.view_ns = t_view_end - t2;
 				engine_->render(r, max_assets_per_frame_);
@@ -528,6 +681,13 @@ bool Runtime::Impl::drive_one_frame()
 	}
 
 	hooks_.after_frame();
+	if (controlled_time_)
+		controlled_time_ms_ += controlled_dt_ms_;
+	control_.send_json({ { "type", "frame" },
+				     { "frame", frame_number },
+				     { "time_ms", controlled_time_ ? controlled_time_ms_ :
+							 static_cast<double>(SDL_GetTicks() -
+									     start_ticks_) } });
 	return true;
 }
 
@@ -678,6 +838,7 @@ bool Runtime::Impl::dispatch_batch(
 Runtime::Runtime(LoopHooks &hooks, std::filesystem::path asset_root)
 	: impl_(std::make_unique<Impl>(hooks, std::move(asset_root)))
 {
+	impl_->control_.start_from_environment();
 }
 
 Runtime::~Runtime() = default;
@@ -747,6 +908,11 @@ void Runtime::run()
 	impl_->start_ticks_ = SDL_GetTicks();
 	impl_->loop_running_ = true;
 	impl_->frame_number_ = 0;
+	impl_->paused_ = false;
+	impl_->step_budget_ = 0;
+	impl_->controlled_time_ = false;
+	impl_->controlled_time_ms_ = 0.0;
+	impl_->has_latest_render_tree_ = false;
 	impl_->frame_capture_.configure_from_environment();
 	profiling_init();
 	while (impl_->drive_one_frame()) {
