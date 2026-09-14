@@ -28,7 +28,6 @@ if command -v apt-get >/dev/null 2>&1; then
         tar
         unzip
         zip
-        ocaml-nox
         libasound2-dev
         libdbus-1-dev
         libdrm-dev
@@ -53,6 +52,7 @@ if command -v apt-get >/dev/null 2>&1; then
         libxrandr-dev
         libxss-dev
         libxtst-dev
+        libltdl-dev
         wayland-protocols
     )
     optional_packages=(libdecor-0-dev)

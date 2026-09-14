@@ -37,7 +37,7 @@ endif()
 # to opt out — useful for non-OCaml hosts (e.g. the future declgl-player
 # gRPC executable) and on machines without ocamlc in PATH.
 option(BUILD_OCAML_BRIDGE "Build the OCaml ↔ C++ bridge target" ON)
-option(BUILD_ELM_PLAYER "Build the standalone Elm/QuickJS player" ON)
+option(BUILD_ELM_PLAYER "Build the standalone Elm/QuickJS player" OFF)
 
 # Common warning flags. Kept simple, no fancy lint options yet.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
