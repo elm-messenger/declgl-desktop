@@ -108,9 +108,8 @@ struct DecodeJob {
 	// Texture only: optional crop region (zeros = full image).
 	ImageCrop crop{};
 
-	// Texture only: reverse decoded rows before upload. The Elm host sets
-	// this to mirror ml-regl-js's flipY=true Image upload; native protocol
-	// clients keep the false default.
+	// Texture only: mirror the texture vertically (LoadTexture's
+	// flip_y). False shows the image as it is in the file.
 	bool flip_y = false;
 
 	// Texture only: should the worker premultiply RGB by alpha after

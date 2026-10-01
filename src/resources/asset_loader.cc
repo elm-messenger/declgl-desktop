@@ -335,8 +335,13 @@ void AssetLoader::process(DecodeJob &job, ReadyAsset &out)
 			out.error = std::move(err);
 			return;
 		}
-		DecodedImage img =
-			decode_image_file(resolved->string(), job.crop, job.flip_y);
+		// Textures are stored bottom row first, as the browser host
+		// uploads them (WebGL flipY), so the same texture coordinates
+		// pick the same pixels on both hosts; flip_y mirrors that.
+		// Font atlases keep the decoded order.
+		DecodedImage img = decode_image_file(
+			resolved->string(), job.crop,
+			/*bottom_row_first=*/!job.flip_y);
 		if (!img.ok()) {
 			out.error = "decode_image_file";
 			return;

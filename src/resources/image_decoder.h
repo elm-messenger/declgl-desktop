@@ -41,10 +41,12 @@ struct DecodedImage {
 // output. If [crop] specifies a region inside the source the pixels
 // are copied to a fresh contiguous RGBA8 buffer of that size; on
 // out-of-bounds the crop is silently clipped to the image rectangle.
+// With [bottom_row_first] the rows (of the crop, if any) are stored
+// bottom row first, as WebGL's UNPACK_FLIP_Y_WEBGL uploads them.
 //
 // On any failure (file missing, decode error, OOM) returns an empty
 // DecodedImage; check [.ok()]. Diagnostic output goes to stderr.
 DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop,
-			       bool flip_y = false);
+			       bool bottom_row_first = false);
 
 } // namespace declgl

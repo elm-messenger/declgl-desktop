@@ -29,7 +29,7 @@ void cxx_free(uint8_t *p)
 } // namespace
 
 DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop,
-			       bool flip_y)
+			       bool bottom_row_first)
 {
 	DecodedImage out;
 
@@ -49,7 +49,7 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop,
 		!(crop.x == 0 && crop.y == 0 && crop.width == w &&
 		  crop.height == h);
 
-	if (!want_crop && !flip_y) {
+	if (!want_crop && !bottom_row_first) {
 		out.pixels = std::unique_ptr<uint8_t[], void (*)(uint8_t *)>(
 			raw, &stb_free);
 		out.width = w;
@@ -82,10 +82,8 @@ DecodedImage decode_image_file(const std::string &path, const ImageCrop &crop,
 	}
 
 	for (int row = 0; row < ch; ++row) {
-		// Cropped loads have historically mirrored createImageBitmap(...,
-		// { imageOrientation: "flipY" }). Full-image loads reverse rows only
-		// when their host runtime explicitly requests WebGL flipY parity.
-		const int src_row = sy + (ch - 1 - row);
+		const int src_row =
+			bottom_row_first ? sy + (ch - 1 - row) : sy + row;
 		const uint8_t *src = raw + (src_row * w + sx) * 4;
 		uint8_t *dst = buf + (row * cw) * 4;
 		std::memcpy(dst, src, static_cast<std::size_t>(cw) * 4);

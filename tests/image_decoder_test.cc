@@ -33,6 +33,12 @@ int main()
 	auto natural = declgl::decode_image_file(path.string(), {});
 	auto flipped =
 		declgl::decode_image_file(path.string(), {}, true);
+	// A crop of the left column follows bottom_row_first too.
+	const declgl::ImageCrop column{ 0, 0, 1, 2 };
+	auto column_natural =
+		declgl::decode_image_file(path.string(), column, false);
+	auto column_flipped =
+		declgl::decode_image_file(path.string(), column, true);
 	std::error_code remove_error;
 	std::filesystem::remove(path, remove_error);
 	if (!natural.ok() || !flipped.ok() || natural.width != 2 ||
@@ -46,7 +52,24 @@ int main()
 	for (int column = 0; column < row_bytes; ++column) {
 		if (flipped.pixels[column] != natural.pixels[row_bytes + column] ||
 		    flipped.pixels[row_bytes + column] != natural.pixels[column]) {
-			std::cerr << "flip_y did not reverse decoded rows\n";
+			std::cerr << "bottom_row_first did not reverse decoded rows\n";
+			return 1;
+		}
+	}
+
+	if (!column_natural.ok() || !column_flipped.ok() ||
+	    column_natural.width != 1 || column_natural.height != 2) {
+		std::cerr << "failed to crop orientation fixture\n";
+		return 1;
+	}
+	for (int byte = 0; byte < 4; ++byte) {
+		if (column_natural.pixels[byte] != natural.pixels[byte] ||
+		    column_natural.pixels[4 + byte] !=
+			    natural.pixels[row_bytes + byte] ||
+		    column_flipped.pixels[byte] !=
+			    natural.pixels[row_bytes + byte] ||
+		    column_flipped.pixels[4 + byte] != natural.pixels[byte]) {
+			std::cerr << "a crop did not follow bottom_row_first\n";
 			return 1;
 		}
 	}
