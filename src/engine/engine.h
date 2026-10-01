@@ -1,21 +1,23 @@
 // engine.h — Internal C++ engine class for the desktop ml_regl backend.
 //
-// The OCaml caml_bridge is the only public entry point into this code.
-// The bridge owns its own per-frame loop; the engine owns SDL/GL state +
-// per-command decode/dispatch.
+// [Runtime] (runtime/runtime.h) is the only caller of this code. The
+// runtime owns the per-frame loop, SDL event pump and frame pacing; the
+// engine owns SDL/GL state, resource registries, the asset loader, the
+// audio engine and per-command decode/dispatch.
 //
 // Lifetime, mirroring the JS backend:
 //
-//   1. The bridge constructs an Engine the first time OCaml ships any
-//      command, and immediately calls [init_decoders_only].
-//   2. Subsequent BackendCommand kinds (LoadTexture, ConfigRegl,
-//      CreateProgram, LoadFont, LoadAudio) are forwarded one by one via
+//   1. The runtime constructs an Engine the first time the host ships
+//      any command, and immediately calls [init_decoders_only].
+//   2. Every BackendCommand except StartRegl, QuitRegl and ConfigRegl
+//      (which the runtime handles itself) is forwarded one by one via
 //      [dispatch_backend_command].
-//   3. When a [StartRegl] arrives, the bridge calls
+//   3. When a [StartRegl] arrives, the runtime calls
 //      [init_window_and_gl(start)] to bring up SDL3 + window + GL ctx +
 //      glad, then enters its per-frame loop. The engine is otherwise
-//      passive — events are pumped by the bridge directly from SDL.
-//   4. On user-requested exit, the bridge calls [shutdown].
+//      passive — the runtime pumps events directly from SDL and calls
+//      [render] / [process_ready_assets] once per frame.
+//   4. When the loop exits, the runtime calls [shutdown].
 
 #pragma once
 
@@ -46,11 +48,12 @@ class AssetLoader;
 class AudioEngine;
 struct RenderContext;
 
-// Bridge → engine sink for serialized BackendEvent payloads. The
+// Engine → host sink for serialized BackendEvent payloads. The
 // engine encodes a [mlregl::transport::backend::BackendEvent]
 // (containing one of TextureLoaded / TextureLoadFail / FontLoaded /
 // ProgramCreated / ...), serializes it to bytes, and calls this. The
-// bridge marshals those bytes to the OCaml
+// runtime forwards those bytes to [LoopHooks::on_backend_event]; the
+// OCaml bridge then marshals them to the
 // `Callback.register "declgl_app_recv_regl_cmd_pb"` handler.
 //
 // This indirection keeps the engine OCaml-runtime-agnostic — useful
@@ -65,8 +68,9 @@ class Engine {
 	Engine(const Engine &) = delete;
 	Engine &operator=(const Engine &) = delete;
 
-	// Phase 1: cheap constructor-side setup. Currently a no-op — kept as
-	// an explicit step so future decoder/cache state has a clear home.
+	// Phase 1: GL-free setup. Starts the async log backend, the asset
+	// loader worker and the (still closed) audio engine so loads shipped
+	// before StartRegl can begin decoding immediately. Idempotent.
 	void init_decoders_only();
 
 	// Phase 2: bring up SDL3 + window + GL ctx + glad. Driven by a
@@ -75,22 +79,22 @@ class Engine {
 	bool
 	init_window_and_gl(const mlregl::transport::backend::StartRegl &start);
 
-	// Per-command dispatch (decode-and-log for now; M3+ wires real work).
-	// The bridge calls this for every non-StartRegl BackendCommand.
+	// Per-command dispatch. The runtime calls this for every
+	// BackendCommand except StartRegl, QuitRegl and ConfigRegl.
 	void dispatch_backend_command(
 		const mlregl::transport::backend::BackendCommand &cmd);
 
 	// Decode + dispatch an AudioCommandBatch. Returns false on parse
-	// failure. [now_ms] is OCaml's wall clock at the moment OCaml
-	// shipped the batch — used as the time anchor for start_time /
-	// volume timeline scheduling. Same clock convention as JS's
-	// [Date.now()].
+	// failure. [now_ms] is the runtime clock (ms since the run loop
+	// started, the same clock as UpdateTick.ts) at the moment the batch
+	// was shipped — used as the time anchor for start_time / volume
+	// timeline scheduling.
 	bool exec_audio_cmd(const uint8_t *bytes, size_t len, double now_ms);
 
 	// Walk a Renderable tree and emit the corresponding GL draw calls
 	// onto the currently-bound framebuffer. Per-frame entry point for
-	// the bridge. [max_assets_per_frame] bounds ready asset jobs drained before
-	// drawing; 0 means unlimited.
+	// the runtime. [max_assets_per_frame] bounds ready asset jobs
+	// drained before drawing; 0 means unlimited.
 	void render(const mlregl::transport::render::Renderable &tree,
 		    std::size_t max_assets_per_frame);
 
@@ -99,22 +103,24 @@ class Engine {
 
 	void shutdown();
 
-	// Accessor used by the caml_bridge for SwapWindow / pixel-size.
+	// Accessor used by the runtime for SwapWindow, window config, mouse
+	// scaling and frame capture.
 	SDL_Window *sdl_window() const
 	{
 		return window_;
 	}
 
-	// Register the bridge's OCaml-callback dispatcher. Must be called
-	// before any backend command that may fire an event (e.g.
-	// LoadTexture). If unset, events are silently dropped with a warning.
+	// Register the host event dispatcher (installed by the runtime).
+	// Must be called before any backend command that may fire an event
+	// (e.g. LoadTexture). If unset, events are dropped with a warning.
 	void set_event_sink(EventSink sink)
 	{
 		event_sink_ = std::move(sink);
 	}
 
 	// Same as [set_event_sink] but for AudioBackendEvents (shipped
-	// to OCaml via the [declgl_app_recv_audio_msg_pb] callback).
+	// to the host via [LoopHooks::on_audio_event]; the OCaml bridge uses
+	// the [declgl_app_recv_audio_msg_pb] callback).
 	// AudioContextReady, AudioLoadSuccess, AudioLoadFailed all
 	// flow through this sink.
 	void set_audio_event_sink(EventSink sink);
@@ -133,7 +139,8 @@ class Engine {
 	// thread: glTexImage2D, register in TextureRegistry / FontRegistry,
 	// ship the corresponding _loaded / _loadfail event. Bounded per
 	// call to keep frame time stable when a flood of assets land at
-	// once. Called at the top of [render()].
+	// once. Called at the top of [render()] and by
+	// [process_ready_assets] on frames without a render tree.
 	void drain_ready_assets(std::size_t max_items);
 
 	SDL_Window *window_ = nullptr;
@@ -152,7 +159,7 @@ class Engine {
 	std::unordered_set<std::string> kv_dirty_keys_;
 	std::vector<std::string> pending_kv_reads_;
 
-	// M3.B+: GPU resources. Lazily constructed in init_window_and_gl
+	// GPU resources. Lazily constructed in init_window_and_gl
 	// because they require an active GL context.
 	std::unique_ptr<DeclProgramRegistry> decl_programs_;
 	std::unique_ptr<TextureRegistry> textures_;

@@ -1,6 +1,7 @@
 #pragma once
 
-// resources/asset_loader.h — async file decode for textures + fonts.
+// resources/asset_loader.h — async asset I/O and decode (textures, fonts,
+// audio, raw files and the key/value store).
 //
 // Why this exists
 // ---------------
@@ -18,11 +19,13 @@
 // ---------------
 //   GL thread                          Worker thread
 //   ─────────                          ─────────────
-//   enqueue_texture(...)  ──push──►   decode PNG
+//   enqueue(Texture job)  ──push──►   decode PNG
 //                                      premultiply (if requested)
-//   enqueue_font(...)     ──push──►   parse BMFont JSON
+//   enqueue(Font job)     ──push──►   parse BMFont JSON
 //                                      decode atlas PNG
 //                                      (font atlas is *never* premultiplied)
+//   enqueue(Audio / File / KvLoad / KvSave job)
+//                         ──push──►   decode + resample / read / write
 //                                              │
 //                                              ▼
 //                          ◄──push──    ready_queue_
@@ -45,8 +48,8 @@
 // Failure handling
 // ----------------
 // Decode/parse failures are captured in the [ReadyAsset] (see
-// [error] field). The GL-thread drain ships a {texture,font}_loadfail
-// event in that case, mirroring the synchronous path's behaviour.
+// [error] field). The GL-thread drain ships the matching failure event
+// ({texture,font}_loadfail, file_load_failed, audio_load_failed).
 
 #include <atomic>
 #include <condition_variable>

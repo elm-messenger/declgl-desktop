@@ -145,8 +145,8 @@ bool Engine::init_window_and_gl(
 	const mlregl::transport::backend::StartRegl &start)
 {
 	if (window_) {
-		// Idempotent on repeated StartRegl — bridge guards against this
-		// too, but be defensive.
+		// Idempotent on repeated StartRegl — the runtime guards against
+		// this too, but be defensive.
 		return true;
 	}
 
@@ -174,7 +174,9 @@ bool Engine::init_window_and_gl(
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
 	// StartRegl carries virt_width/virt_height as the logical/virtual
-	// size; the desktop backend currently treats them 1:1 as window size.
+	// canvas size. It doubles as the initial window size; after that the
+	// renderer letterboxes the virtual canvas into whatever size the
+	// window has.
 	const int32_t w = start.virt_width() > 0 ?
 				  static_cast<int32_t>(start.virt_width()) :
 				  1280;
@@ -263,7 +265,7 @@ bool Engine::init_window_and_gl(
 				start.fbo_num());
 	}
 
-	// M3.B: spin up the declarative program registry, render context and walker.
+	// Spin up the declarative program registry, render context and walker.
 	// These all need an active GL context, so we construct them here
 	// rather than in [init_decoders_only].
 	decl_programs_ = std::make_unique<DeclProgramRegistry>();
@@ -513,10 +515,10 @@ void Engine::dispatch_backend_command(
 		break;
 	}
 	case BackendCommand::kConfigRegl:
-		// Pacing + window flags live in the bridge — it owns the SDL
-		// window and the per-frame loop, both of which ConfigRegl
-		// targets. The bridge consumes kConfigRegl directly and never
-		// forwards it here.
+		// Pacing + window flags live in the runtime — it owns the
+		// per-frame loop and applies window changes, both of which
+		// ConfigRegl targets. The runtime consumes kConfigRegl directly
+		// and never forwards it here.
 		break;
 	case BackendCommand::kCreateProgram: {
 		const auto &cp = cmd.create_program();
@@ -674,11 +676,11 @@ void Engine::dispatch_backend_command(
 		break;
 	}
 	case BackendCommand::kStartRegl:
-		// The bridge handles StartRegl itself (it owns window+loop
+		// The runtime handles StartRegl itself (it owns the loop
 		// lifecycle); it never forwards it here.
 		break;
 	case BackendCommand::kQuitRegl:
-		// Same as StartRegl: handled by the bridge, never forwarded.
+		// Same as StartRegl: handled by the runtime, never forwarded.
 		break;
 	case BackendCommand::KIND_NOT_SET:
 	default:
@@ -738,7 +740,7 @@ void Engine::ship_event(const mlregl::transport::backend::BackendEvent &ev)
 	if (!event_sink_) {
 		DECLGL_LOG_WARN(
 			"ship_event: no EventSink registered "
-			"(events will be dropped); is the bridge wired up?");
+			"(events will be dropped); is the runtime wired up?");
 		return;
 	}
 	std::string buf;
@@ -816,8 +818,10 @@ void Engine::drain_ready_assets(std::size_t max_items)
 		}
 
 		if (!textures_ || !fonts_) {
-			// GL not up: leave non-storage assets for a future frame by not
-			// expected path; render() only calls us after GL init.
+			// GL registries not created yet. Unreachable in
+			// practice: drain_ready_assets only runs from the frame
+			// loop, after init_window_and_gl. An asset reaching
+			// here is dropped.
 			continue;
 		}
 

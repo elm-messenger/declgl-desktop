@@ -5,6 +5,7 @@
 //
 //     external declgl_ship_backend_cmd : bytes -> unit
 //     external declgl_ship_audio_cmd   : bytes -> unit
+//     external declgl_debug_emit       : string -> unit
 //
 // There is intentionally NO separate `declgl_run_main` entry point. The
 // run loop is triggered by the protocol-level [StartRegl] command — the

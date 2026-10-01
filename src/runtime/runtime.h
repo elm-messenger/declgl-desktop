@@ -4,10 +4,10 @@
 // Owns the SDL window + GL context, the per-frame loop, the
 // BackendCommand/BackendEvent dispatch, frame pacing, profiling, and the
 // process-wide engine instance. Everything host-specific (OCaml FFI vs.
-// gRPC player vs. test harness) is funnelled through the LoopHooks
+// Elm/QuickJS player vs. test harness) is funnelled through the LoopHooks
 // abstract base class (see loop_hooks.h).
 //
-// Lifetime, mirroring the previous in-bridge topology:
+// Lifetime:
 //
 //   1. Construct Runtime with a host-supplied LoopHooks. The runtime
 //      lazily creates a declgl::Engine and registers the engine sinks

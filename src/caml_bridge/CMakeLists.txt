@@ -1,15 +1,16 @@
 # caml_bridge — OCaml ↔ C++ glue for the desktop ml_regl backend.
 #
-# Builds an object library that exposes the two C symbols the OCaml side
+# Builds an object library that exposes the C symbols the OCaml side
 # declares as `external`:
 #   - declgl_ship_backend_cmd
 #   - declgl_ship_audio_cmd
+#   - declgl_debug_emit
 #
 # There is intentionally no separate run-loop entry point: the loop is
 # triggered by the protocol-level [StartRegl] command, just like the JS
-# backend's `start()`. This archive plus declgl_engine + declgl_proto +
-# GLAD get bundled into the final libdeclgl.a that the OCaml dune side
-# picks up via (foreign_archives declgl).
+# backend's `start()`. These objects are bundled with the rest of the
+# first-party object libraries into the final libdeclgl.a that the OCaml
+# dune side picks up via (foreign_archives declgl).
 
 # ----------------------------------------------------------------------------
 # Locate the OCaml runtime headers (caml/callback.h, caml/mlvalues.h, ...).

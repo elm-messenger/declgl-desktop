@@ -2,7 +2,7 @@
 //
 // All the per-frame machinery (SDL event pump, dispatch_batch over
 // BackendCommand, frame pacing, profiling, etc.) lives here. The host
-// (OCaml caml_bridge or future gRPC player) hands a LoopHooks subclass
+// (OCaml caml_bridge or the Elm/QuickJS player) hands a LoopHooks subclass
 // to a Runtime instance and never touches SDL or GL directly.
 
 #include "runtime/runtime.h"

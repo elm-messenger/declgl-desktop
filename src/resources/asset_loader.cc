@@ -1,4 +1,5 @@
-// resources/asset_loader.cc — async file decode for textures + fonts.
+// resources/asset_loader.cc — async asset I/O and decode (textures, fonts,
+// audio, raw files and the key/value store).
 //
 // See [asset_loader.h] for the threading model.
 

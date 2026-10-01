@@ -1,8 +1,8 @@
 // loop_hooks.h — abstract boundary between the desktop runtime and its host.
 //
 // The runtime (see runtime.h) owns the SDL/GL window and the per-frame loop;
-// it knows nothing about its caller (OCaml FFI bridge, gRPC player, unit
-// test harness). Everything that crosses the boundary goes through the
+// it knows nothing about its caller (OCaml FFI bridge, Elm/QuickJS player,
+// unit test harness). Everything that crosses the boundary goes through the
 // pure-virtual hook methods below. Each transport implements LoopHooks once
 // and hands the instance to a Runtime.
 
@@ -35,7 +35,7 @@ class LoopHooks {
 
 	// Invoked when a QuitRegl command is observed. The runtime has
 	// already set its internal quit flag; this is purely a notification
-	// for the host (e.g. so a gRPC player can half-close its stream).
+	// for the host (e.g. so a player can stop its script runtime).
 	virtual void on_quit()
 	{
 	}
@@ -66,11 +66,12 @@ class LoopHooks {
 	}
 
 	// --- Command intake --------------------------------------------
-	// Called once per frame inside before_frame's slot. Implementations
-	// return any inbound BackendCommandBatch payloads (each entry a
-	// serialized BackendCommandBatch) that have arrived since the last
-	// call. Empty vector = nothing to dispatch this frame. The runtime
-	// parses each blob and routes it through its dispatch path.
+	// Called twice per frame: after before_frame() and again after
+	// before_view(). Implementations return any inbound
+	// BackendCommandBatch payloads (each entry a serialized
+	// BackendCommandBatch) that have arrived since the last call.
+	// Empty vector = nothing to dispatch. The runtime parses each blob
+	// and routes it through its dispatch path.
 	virtual std::vector<std::vector<uint8_t> > pull_commands()
 	{
 		return {};
@@ -81,8 +82,8 @@ class LoopHooks {
 	}
 
 	// --- Event egress (input events to the host) -------------------
-	// Called for every SDL input event AND for the per-frame
-	// UpdateTick. `bytes` is a serialized
+	// Called for every SDL input event, every control-channel injected
+	// input, AND for the per-frame UpdateTick. `bytes` is a serialized
 	// mlregl::transport::backend::Event payload.
 	virtual void deliver_event(const uint8_t *bytes, std::size_t len) = 0;
 

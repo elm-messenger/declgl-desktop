@@ -8,7 +8,8 @@
 // The base class provides:
 //   - compile(): compile/link GLSL program, cache uniform/attribute locations
 //   - draw(): issue GL calls using prepared DrawState
-//   - shared streaming VAO/VBO/EBO for dynamic data
+//   - per-program VAO, a reused dynamic VBO/EBO for streamed data, and
+//     cached GL buffers for static attributes / indices
 
 #pragma once
 

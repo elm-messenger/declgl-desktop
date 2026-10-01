@@ -2,7 +2,7 @@
 #
 # Owns SDL window + GL ctx ownership, the per-frame loop, dispatch over
 # BackendCommand, frame pacing, and profiling. Hosts (OCaml caml_bridge
-# or future gRPC player) implement LoopHooks (loop_hooks.h) and feed it
+# or the Elm/QuickJS player) implement LoopHooks (loop_hooks.h) and feed it
 # into a Runtime instance.
 
 add_library(declgl_runtime OBJECT

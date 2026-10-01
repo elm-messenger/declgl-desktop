@@ -189,9 +189,17 @@ wants Escape to quit should send `QuitRegl` itself.
 
 ## Running elm-regl applications
 
-The build also produces `declgl-player`, a standalone QuickJS host for
-Elm-generated JavaScript. It loads application JavaScript at startup; no Elm
-application is embedded in the player binary.
+`declgl-player` is an optional standalone QuickJS host for Elm-generated
+JavaScript. It is not built by default; configure with
+`-DBUILD_ELM_PLAYER=ON` to build it alongside `libdeclgl.a`:
+
+```bash
+cmake --preset linux-debug -DBUILD_ELM_PLAYER=ON
+cmake --build --preset linux-debug
+```
+
+It loads application JavaScript at startup; no Elm application is embedded in
+the player binary.
 
 ```bash
 ./build/linux-debug/declgl-player \
@@ -233,6 +241,5 @@ compositors, textures, fonts, and clear commands. Custom shaders
 with an explicit error. Asset paths are relative to the current working
 directory and confined to it, unless `--asset-root` supplies another root.
 
-Configure with `-DBUILD_ELM_PLAYER=OFF` to build only the existing OCaml
-backend. See [docs/ElmRuntimeDesign.md](docs/ElmRuntimeDesign.md) for the
+See [docs/ElmRuntimeDesign.md](docs/ElmRuntimeDesign.md) for the
 architecture and compatibility contract.

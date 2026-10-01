@@ -29,9 +29,10 @@
 // Time domain
 // -----------
 // Times in the proto / OCaml side are absolute milliseconds in the
-// same clock OCaml reports via [now_ms] (the bridge passes that
-// through). The audio thread maintains its own engine-frames
-// counter; ms → device frames conversion uses
+// runtime clock (ms since the run loop started, the same clock as
+// UpdateTick.ts); the runtime stamps each batch with [now_ms]. The
+// audio thread maintains its own engine-frames counter; ms → device
+// frames conversion uses
 // [(t_ms - now_ms_at_cmd) * sample_rate / 1000 + frames_at_cmd]
 // to land timeline events on the right output frame regardless of
 // audio buffer scheduling drift.
@@ -100,9 +101,9 @@ class AudioEngine {
 
 	// Decode + dispatch an entire AudioCommandBatch. Each action
 	// becomes one entry on the command ring. Called from the GL
-	// thread. [now_ms] is the same wall-clock OCaml gave for
-	// [update]; passed through verbatim so [start_time] semantics
-	// line up with JS's [Date.now()].
+	// thread. [now_ms] is the runtime clock at the moment the batch
+	// was shipped — the same clock OCaml sees as UpdateTick.ts — so
+	// [start_time] and timeline points share its time base.
 	bool exec_audio_cmd(const uint8_t *bytes, std::size_t len,
 			    double now_ms);
 

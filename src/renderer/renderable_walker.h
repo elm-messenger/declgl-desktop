@@ -1,6 +1,6 @@
 // renderer/renderable_walker.h — recursive interpreter for Renderable trees.
 //
-// M3.E: full compositing pipeline. The walker now mirrors the JS
+// Full compositing pipeline. The walker mirrors the JS
 // `drawRenderable` / `drawGroup` / `drawComp` / `applyEffect` recursion
 // against an [FboPool] of offscreen palettes. Atomic batches share a
 // palette between nested group/composite breaks; effects ping-pong
@@ -32,7 +32,7 @@ class RenderableWalker {
 	~RenderableWalker();
 
 	// Render the given tree under [ctx] onto the currently-bound
-	// framebuffer (typically the system framebuffer = 0). M3.E: when
+	// framebuffer (typically the system framebuffer = 0). When
 	// [ctx.fbos] is non-null and the tree contains any group/composite/
 	// effects, the walker uses offscreen palettes and finishes by
 	// blitting the result to whatever framebuffer was bound at entry.
@@ -63,8 +63,7 @@ class RenderableWalker {
 	// [target_fbo_at_entry_]. Used to walk the chain.
 	void bind_fbo(int pid, const RenderContext &ctx);
 
-	// M3.B/C/D core: render a single atomic onto the currently-bound
-	// framebuffer. Unchanged by M3.E.
+	// Render a single atomic onto the currently-bound framebuffer.
 	void render_atomic(const mlregl::transport::render::AtomicRenderable &a,
 			   const RenderContext &ctx);
 

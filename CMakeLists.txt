@@ -34,8 +34,8 @@ endif()
 # ----------------------------------------------------------------------------
 # When ON (the default) we build the OCaml ↔ C++ bridge object library
 # and bundle it into libdeclgl.a. Configure with -DBUILD_OCAML_BRIDGE=OFF
-# to opt out — useful for non-OCaml hosts (e.g. the future declgl-player
-# gRPC executable) and on machines without ocamlc in PATH.
+# to opt out — useful for non-OCaml hosts (e.g. the Elm/QuickJS
+# declgl-player) and on machines without ocamlc in PATH.
 option(BUILD_OCAML_BRIDGE "Build the OCaml ↔ C++ bridge target" ON)
 option(BUILD_ELM_PLAYER "Build the standalone Elm/QuickJS player" OFF)
 
@@ -100,13 +100,17 @@ endif()
 # (foreign_archives declgl). We build the base archive directly from the
 # object files emitted by the targets that the OCaml-linked binary needs at
 # link time:
-#   - declgl_caml_bridge  (extern "C" CAMLprim entry points)
+#   - declgl_caml_bridge  (extern "C" CAMLprim entry points; optional)
+#   - declgl_runtime      (frame loop, control client, frame capture)
 #   - declgl_engine       (SDL/GL + per-command dispatch)
+#   - declgl_renderer, declgl_gpu, declgl_shaders (draw path)
+#   - declgl_resources, declgl_audio (asset loading, mixer)
 #   - declgl_proto        (generated protobuf C++ stubs)
-#   - glad                (GL loader)
+#   - declgl_log, glad, stb_image, stb_vorbis
 #
 # A post-build step repacks this base archive together with the vcpkg static
-# archives reported by pkg-config for protobuf-lite and SDL3. System libraries
+# archives reported by pkg-config for protobuf-lite, SDL3, ixwebsocket and
+# zlib. System libraries
 # still stay as linker flags because normal static archives cannot contain
 # libc/libstdc++/pthread/rt-style platform libraries.
 # ----------------------------------------------------------------------------
