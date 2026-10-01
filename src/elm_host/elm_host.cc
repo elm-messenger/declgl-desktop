@@ -90,12 +90,6 @@ double ElmHost::now_ms() const
 		.count();
 }
 
-int ElmHost::interrupt_handler(JSRuntime *, void *opaque)
-{
-	auto *host = static_cast<ElmHost *>(opaque);
-	return std::chrono::steady_clock::now() > host->interrupt_deadline_;
-}
-
 void ElmHost::fail(std::string message)
 {
 	if (failed_)
@@ -119,8 +113,6 @@ void ElmHost::capture_exception(const char *operation)
 
 bool ElmHost::eval_source(const char *source, std::size_t len, const char *name)
 {
-	interrupt_deadline_ =
-		std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	JSValue result = JS_Eval(ctx_, source, len, name, JS_EVAL_TYPE_GLOBAL);
 	if (JS_IsException(result)) {
 		capture_exception(name);
@@ -517,7 +509,6 @@ bool ElmHost::initialize()
 	}
 	JS_SetMemoryLimit(rt_, config_.memory_limit);
 	JS_SetMaxStackSize(rt_, config_.stack_limit);
-	JS_SetInterruptHandler(rt_, interrupt_handler, this);
 	ctx_ = JS_NewContext(rt_);
 	if (!ctx_) {
 		fail("cannot create QuickJS context");
@@ -568,8 +559,6 @@ bool ElmHost::initialize()
 	}
 	if (!JS_IsUndefined(flags))
 		set_property(ctx_, options, "flags", flags);
-	interrupt_deadline_ =
-		std::chrono::steady_clock::now() + std::chrono::seconds(5);
 	app_ = JS_Call(ctx_, init, current, 1, &options);
 	JS_FreeValue(ctx_, options);
 	JS_FreeValue(ctx_, init);
@@ -592,8 +581,6 @@ bool ElmHost::drain_jobs(std::size_t max_jobs)
 {
 	for (std::size_t i = 0; i < max_jobs; ++i) {
 		JSContext *job_ctx = nullptr;
-		interrupt_deadline_ = std::chrono::steady_clock::now() +
-				      std::chrono::milliseconds(250);
 		const int result = JS_ExecutePendingJob(rt_, &job_ctx);
 		if (result == 0)
 			return true;
@@ -620,8 +607,6 @@ void ElmHost::run_timers(bool include_animation_frame)
 	}
 	for (auto &timer : due) {
 		JSValue arg = JS_NewFloat64(ctx_, time_origin_ms_ + now);
-		interrupt_deadline_ = std::chrono::steady_clock::now() +
-				      std::chrono::milliseconds(250);
 		JSValue result = JS_Call(ctx_, timer.callback, JS_UNDEFINED,
 					 timer.animation_frame ? 1 : 0, &arg);
 		JS_FreeValue(ctx_, arg);
@@ -699,8 +684,6 @@ void ElmHost::before_events()
 	if (!failed_) {
 		if (viewport_resize_pending_) {
 			viewport_resize_pending_ = false;
-			interrupt_deadline_ = std::chrono::steady_clock::now() +
-				      std::chrono::milliseconds(250);
 			JSValue result = JS_Call(ctx_, resize_fn_, JS_UNDEFINED, 0,
 						 nullptr);
 			if (JS_IsException(result))
@@ -748,8 +731,6 @@ std::vector<std::vector<uint8_t> > ElmHost::pull_audio_commands()
 bool ElmHost::send_port(JSValueConst port, JSValue value, const char *name)
 {
 	JSValue send = JS_GetPropertyStr(ctx_, port, "send");
-	interrupt_deadline_ = std::chrono::steady_clock::now() +
-			      std::chrono::milliseconds(250);
 	JSValue result = JS_Call(ctx_, send, port, 1, &value);
 	JS_FreeValue(ctx_, send);
 	JS_FreeValue(ctx_, value);
@@ -766,8 +747,6 @@ void ElmHost::dispatch_dom_event(const char *type, JSValue init)
 {
 	JSValue type_value = JS_NewString(ctx_, type);
 	JSValue args[] = { type_value, init };
-	interrupt_deadline_ = std::chrono::steady_clock::now() +
-			      std::chrono::milliseconds(250);
 	JSValue result = JS_Call(ctx_, dispatch_fn_, JS_UNDEFINED, 2, args);
 	JS_FreeValue(ctx_, type_value);
 	JS_FreeValue(ctx_, init);
@@ -785,8 +764,6 @@ void ElmHost::set_dom_viewport(double width, double height)
 	JS_FreeValue(ctx_, global);
 	JSValue args[] = { JS_NewFloat64(ctx_, width),
 			   JS_NewFloat64(ctx_, height) };
-	interrupt_deadline_ = std::chrono::steady_clock::now() +
-			      std::chrono::milliseconds(250);
 	JSValue result = JS_Call(ctx_, setter, JS_UNDEFINED, 2, args);
 	JS_FreeValue(ctx_, args[0]);
 	JS_FreeValue(ctx_, args[1]);

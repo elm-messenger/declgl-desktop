@@ -38,9 +38,9 @@ bool preprocess_directives(std::string_view source, std::string &output,
 	std::size_t line_number = 1;
 	while (offset < source.size()) {
 		const std::size_t end = source.find('\n', offset);
-		const std::size_t length =
-			end == std::string_view::npos ? source.size() - offset :
-						       end - offset;
+		const std::size_t length = end == std::string_view::npos ?
+						   source.size() - offset :
+						   end - offset;
 		const std::string_view line = source.substr(offset, length);
 		const std::string stripped = trim(line);
 		bool omit = false;
@@ -75,9 +75,45 @@ bool preprocess_directives(std::string_view source, std::string &output,
 	return true;
 }
 
+std::string choose_identifier(std::string_view base, std::string_view vert,
+			      std::string_view frag)
+{
+	std::string candidate(base);
+	unsigned int suffix = 2;
+	while (vert.find(candidate) != std::string_view::npos ||
+	       frag.find(candidate) != std::string_view::npos) {
+		candidate = std::string(base) + "_" + std::to_string(suffix++);
+	}
+	return candidate;
+}
+
 } // namespace
 
+GlslEs100Identifiers
+choose_glsl_es_100_identifiers(std::string_view vert_source,
+			       std::string_view frag_source)
+{
+	GlslEs100Identifiers identifiers;
+	identifiers.texture = choose_identifier("declgl_es_texture",
+						vert_source, frag_source);
+	identifiers.texture_proj = choose_identifier("declgl_es_texture_proj",
+						     vert_source, frag_source);
+	return identifiers;
+}
+
+std::string
+translate_glsl_es_100_identifier(std::string_view identifier,
+				 const GlslEs100Identifiers &identifiers)
+{
+	if (identifier == "texture")
+		return identifiers.texture;
+	if (identifier == "textureProj")
+		return identifiers.texture_proj;
+	return std::string(identifier);
+}
+
 bool translate_glsl_es_100(std::string_view source, ShaderStage stage,
+			   const GlslEs100Identifiers &identifiers,
 			   std::string &output, std::string &error)
 {
 	std::string input;
@@ -151,7 +187,11 @@ bool translate_glsl_es_100(std::string_view source, ShaderStage stage,
 		}
 		if (token == "lowp" || token == "mediump" || token == "highp")
 			continue;
-		if (token == "attribute") {
+		if (token == "texture") {
+			body.append(identifiers.texture);
+		} else if (token == "textureProj") {
+			body.append(identifiers.texture_proj);
+		} else if (token == "attribute") {
 			if (stage != ShaderStage::Vertex) {
 				error = "line " + std::to_string(line) +
 					": attribute is only valid in a vertex shader";
@@ -159,7 +199,8 @@ bool translate_glsl_es_100(std::string_view source, ShaderStage stage,
 			}
 			body.append("in");
 		} else if (token == "varying") {
-			body.append(stage == ShaderStage::Vertex ? "out" : "in");
+			body.append(stage == ShaderStage::Vertex ? "out" :
+								   "in");
 		} else if (token == "texture2D" || token == "texture2DProj" ||
 			   token == "textureCube") {
 			body.append(token == "texture2DProj" ? "textureProj" :

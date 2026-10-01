@@ -700,6 +700,10 @@ bool command_from_js(JSContext *ctx, JSValueConst value,
 		auto *load = out.mutable_load_texture();
 		load->set_name(name);
 		load->set_url(path);
+		// ml-regl-js sets flipY=true for every ordinary Image upload. Carry
+		// that source-runtime convention explicitly instead of changing the
+		// native desktop default for other protocol clients.
+		load->mutable_options()->set_flip_y(true);
 		std::string filter;
 		Value mag = prop(ctx, opts.get(), "mag");
 		if (string_value(ctx, mag.get(), filter) && filter == "nearest")

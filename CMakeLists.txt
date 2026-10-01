@@ -38,6 +38,7 @@ endif()
 # declgl-player) and on machines without ocamlc in PATH.
 option(BUILD_OCAML_BRIDGE "Build the OCaml ↔ C++ bridge target" ON)
 option(BUILD_ELM_PLAYER "Build the standalone Elm/QuickJS player" OFF)
+include(CTest)
 
 # Common warning flags. Kept simple, no fancy lint options yet.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU|AppleClang")
@@ -92,6 +93,9 @@ endif()
 if(BUILD_ELM_PLAYER)
     add_subdirectory(src/elm_host)
     add_subdirectory(src/player)
+endif()
+if(BUILD_TESTING)
+    add_subdirectory(tests)
 endif()
 
 # ----------------------------------------------------------------------------
