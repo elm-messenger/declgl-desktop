@@ -93,13 +93,15 @@ struct DrawState {
 		std::string name;
 		GLint loc = -1;
 		enum class Type { F1, F2, F3, F4, I1, TEX };
-		Type type;
-		// Stored inline (no heap allocation for small values)
+		Type type = Type::F1;
+		// Stored inline (no heap allocation for small values). Zeroed
+		// through the widest member so copying a TEX value reads no
+		// uninitialized bytes.
 		union {
 			float f1;
 			float f2[2];
 			float f3[3];
-			float f4[4];
+			float f4[4] = {};
 			int i1;
 		};
 		GLuint tex_id = 0; // for Type::TEX
