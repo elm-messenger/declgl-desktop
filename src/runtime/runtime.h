@@ -19,8 +19,9 @@
 //   3. The first StartRegl in a batch brings up SDL + window + GL ctx
 //      and arms the run loop. dispatch() returns true; the host should
 //      then call run() to enter the per-frame loop.
-//   4. run() returns when the user closes the window, ESC is pressed,
-//      or a QuitRegl is observed.
+//   4. run() returns when the user closes the window, a QuitRegl is
+//      observed, or the control channel sends `quit`. Escape is an
+//      ordinary key and is delivered to the host like any other.
 
 #pragma once
 
@@ -65,7 +66,8 @@ class Runtime {
 	// (zero before the loop has started).
 	void dispatch_audio(const uint8_t *bytes, std::size_t len);
 
-	// Per-frame loop. Returns when SDL_QUIT / ESC / QuitRegl is seen.
+	// Per-frame loop. Returns when SDL_QUIT / QuitRegl / control `quit`
+	// is seen, or when the host's should_continue() returns false.
 	// Precondition: a prior dispatch() call must have surfaced a
 	// StartRegl that brought the GL context up.
 	void run();

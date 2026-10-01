@@ -182,6 +182,11 @@ $env:DECLGL_BUILD_DIR = "$PWD\declgl-desktop\build\win-debug"
 dune build
 ```
 
+The native app runs until the user closes the window, the app ships
+`QuitRegl`, or the optional control channel sends `quit`. Escape is an
+ordinary key and is delivered to the app like any other key; an app that
+wants Escape to quit should send `QuitRegl` itself.
+
 ## Running elm-regl applications
 
 The build also produces `declgl-player`, a standalone QuickJS host for

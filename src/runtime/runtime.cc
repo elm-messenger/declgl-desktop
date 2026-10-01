@@ -497,8 +497,6 @@ bool Runtime::Impl::pump_events()
 	while (SDL_PollEvent(&ev)) {
 		if (ev.type == SDL_EVENT_QUIT)
 			return false;
-		if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_ESCAPE)
-			return false;
 
 		mlregl::transport::backend::Event pb;
 		if (!sdl_event_to_pb(ev, &pb))
