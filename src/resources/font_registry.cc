@@ -43,4 +43,13 @@ bool FontRegistry::unregister_font(std::string_view name)
 	return map_.erase(std::string(name)) > 0;
 }
 
+bool FontRegistry::uses_texture(std::string_view texture_name) const
+{
+	for (const auto &[name, entry] : map_) {
+		if (entry.texture_name == texture_name)
+			return true;
+	}
+	return false;
+}
+
 } // namespace declgl

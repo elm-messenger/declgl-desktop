@@ -603,20 +603,15 @@ void Engine::dispatch_backend_command(
 		break;
 	}
 	case BackendCommand::kUnloadFont: {
-		// Symmetric inverse of LoadFont. Two GL resources to free:
+		// Symmetric inverse of LoadFont. Two resources to free:
 		//   - the parsed [Font] in FontRegistry (CPU only)
 		//   - the MSDF atlas [Texture] registered under the font's
 		//     [image_url] in TextureRegistry (VRAM)
 		// We resolve the atlas key from the font entry *before*
-		// we erase the font, then unregister the texture.
-		//
-		// Note: a future enhancement could add atlas-sharing
-		// refcounts (multiple fonts under different names but the
-		// same image_url). Right now we eagerly free the atlas
-		// even if another font still references it; in practice
-		// the OCaml app loads each atlas exactly once, but if you
-		// start sharing atlases this becomes a footgun. Mark this
-		// for follow-up if/when atlas sharing actually shows up.
+		// we erase the font. Fonts loaded from the same image
+		// share one atlas, so — like the JS backend's
+		// TextManager.unloadFont — the atlas is only freed once no
+		// remaining font uses it.
 		const auto &uf = cmd.unload_font();
 		DECLGL_LOG_INFO("unload_font name={}", uf.name());
 		if (loader_) {
@@ -630,7 +625,14 @@ void Engine::dispatch_backend_command(
 			fonts_->unregister_font(uf.name());
 		}
 		if (textures_ && !atlas_key.empty()) {
-			textures_->unregister_texture(atlas_key);
+			if (fonts_ && fonts_->uses_texture(atlas_key)) {
+				DECLGL_LOG_INFO(
+					"unload_font name={}: atlas '{}' still "
+					"used by another font; keeping it",
+					uf.name(), atlas_key);
+			} else {
+				textures_->unregister_texture(atlas_key);
+			}
 		}
 		break;
 	}

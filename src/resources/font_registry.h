@@ -51,6 +51,10 @@ class FontRegistry {
 
 	bool unregister_font(std::string_view name);
 
+	// True if any registered font draws from the atlas texture registered
+	// under [texture_name]. Fonts that share one image share one atlas.
+	bool uses_texture(std::string_view texture_name) const;
+
 	std::size_t size() const
 	{
 		return map_.size();
