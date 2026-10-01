@@ -150,6 +150,17 @@ void RenderableWalker::release_pid(int pid, const RenderContext &ctx)
 		ctx.fbos->release(pid);
 }
 
+int RenderableWalker::acquire_cleared(const RenderContext &ctx)
+{
+	const int pid = ctx.fbos ? ctx.fbos->acquire() : -1;
+	if (pid < 0)
+		return -1;
+	bind_fbo(pid, ctx);
+	glClearColor(0.f, 0.f, 0.f, 0.f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	return pid;
+}
+
 void RenderableWalker::bind_fbo(int pid, const RenderContext &ctx)
 {
 	if (pid < 0 || !ctx.fbos) {
@@ -291,10 +302,16 @@ int RenderableWalker::draw_composite(
 {
 	if (!c.has_compositor())
 		return -1;
-	const int r1 = c.has_left() ? draw_renderable(c.left(), ctx) : -1;
-	const int r2 = c.has_right() ? draw_renderable(c.right(), ctx) : -1;
+	int r1 = c.has_left() ? draw_renderable(c.left(), ctx) : -1;
+	int r2 = c.has_right() ? draw_renderable(c.right(), ctx) : -1;
 	if (r1 < 0 && r2 < 0)
 		return -1;
+	// A side that drew nothing (no atomic in it) is a transparent image,
+	// as in the browser host, so the compositor still sees two inputs.
+	if (r1 < 0)
+		r1 = acquire_cleared(ctx);
+	if (r2 < 0)
+		r2 = acquire_cleared(ctx);
 
 	const int npid = ctx.fbos->acquire();
 	if (npid < 0) {

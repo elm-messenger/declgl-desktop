@@ -71,6 +71,10 @@ class RenderableWalker {
 	// FboPool::release that null-guards the pool.
 	void release_pid(int pid, const RenderContext &ctx);
 
+	// Acquire a palette cleared to transparent, or -1 if the pool is
+	// exhausted. Stands in for an empty side of a composite.
+	int acquire_cleared(const RenderContext &ctx);
+
 	DeclProgramRegistry &decl_programs_;
 
 	// Framebuffer the engine had bound when [render] was called. We
