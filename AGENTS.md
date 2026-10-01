@@ -120,7 +120,9 @@ DECLGL_BUILD_DIR=$PWD/build/linux-debug \
   dune build --root .. test/test_ml_regl_desktop.exe
 ```
 
-There is no standalone CTest suite currently. Use the smallest parent smoke
+`ctest --test-dir build/<preset>` runs the unit tests in `tests/` (the GLSL ES
+translator and the image decoder; the Elm host test is built only with
+`BUILD_ELM_PLAYER`). For anything else, use the smallest parent smoke
 application covering the change. Native programs open a real window and may
 need a display/audio device; use their bounded quit behavior or control
 channel, and do not leave them running. For control behavior, run the parent
