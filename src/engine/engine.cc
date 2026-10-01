@@ -188,12 +188,15 @@ bool Engine::init_window_and_gl(
 	// overrides each control: absent fields keep the default.
 	bool want_resizable = true;
 	bool want_fullscreen = false;
+	std::string title = "declgl";
 	if (start.has_window()) {
 		const auto &wc = start.window();
 		if (wc.has_resizable())
 			want_resizable = wc.resizable();
 		if (wc.has_fullscreen())
 			want_fullscreen = wc.fullscreen();
+		if (wc.has_title())
+			title = wc.title();
 	}
 	SDL_WindowFlags wflags = SDL_WINDOW_OPENGL |
 				 SDL_WINDOW_HIGH_PIXEL_DENSITY;
@@ -202,7 +205,7 @@ bool Engine::init_window_and_gl(
 	if (want_fullscreen)
 		wflags |= SDL_WINDOW_FULLSCREEN;
 
-	window_ = SDL_CreateWindow("declgl", w, h, wflags);
+	window_ = SDL_CreateWindow(title.c_str(), w, h, wflags);
 	if (!window_) {
 		DECLGL_LOG_ERROR("SDL_CreateWindow failed: {}", SDL_GetError());
 		sdl_initialized_ = false;

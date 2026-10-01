@@ -800,6 +800,17 @@ bool Runtime::Impl::dispatch_batch(
 						"config_regl window.resizable={}",
 						wc.resizable() ? 1 : 0);
 				}
+				if (wc.has_title()) {
+					if (!SDL_SetWindowTitle(
+						    w, wc.title().c_str()))
+						DECLGL_LOG_WARN(
+							"config_regl window.title: {}",
+							SDL_GetError());
+					else
+						DECLGL_LOG_INFO(
+							"config_regl window.title={}",
+							wc.title());
+				}
 				break;
 			}
 			case ReglConfig::kMaxAssetsPerFrame: {
