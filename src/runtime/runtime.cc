@@ -735,8 +735,10 @@ bool Runtime::Impl::drive_one_frame()
 	hooks_.after_frame();
 	if (controlled_time_)
 		controlled_time_ms_ += controlled_dt_ms_;
+	// The frames run so far, as get_state counts them (and the browser
+	// host): a step of n from get_state's frame F ends with frame F + n.
 	control_.send_json({ { "type", "frame" },
-				     { "frame", frame_number },
+				     { "frame", frame_number + 1 },
 				     { "time_ms", controlled_time_ ? controlled_time_ms_ :
 							 static_cast<double>(SDL_GetTicks() -
 									     start_ticks_) } });
