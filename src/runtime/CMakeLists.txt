@@ -32,4 +32,6 @@ target_link_libraries(declgl_runtime
         SDL3::SDL3
         nlohmann_json::nlohmann_json
         ixwebsocket::ixwebsocket
+    PRIVATE
+        stb_image
 )

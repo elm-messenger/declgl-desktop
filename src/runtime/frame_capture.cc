@@ -1,6 +1,8 @@
 #include "runtime/frame_capture.h"
 
+#include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -16,6 +18,8 @@
 #include <nlohmann/json.hpp>
 
 #include "log/log.h"
+#include "renderer/render_context.h"
+#include "stb_image_write.h"
 #include "transport_render.pb.h"
 
 namespace declgl
@@ -135,22 +139,18 @@ bool save_render_tree(const std::filesystem::path &path, const Renderable &tree)
 	return static_cast<bool>(output);
 }
 
-bool save_back_buffer(const std::filesystem::path &path, SDL_Window *window)
+// Read the window's back buffer as RGBA, top row first.
+bool read_back_buffer(SDL_Window *window, int &width, int &height,
+		      std::vector<std::uint8_t> &out)
 {
-	int width = 0;
-	int height = 0;
 	if (!window || !SDL_GetWindowSizeInPixels(window, &width, &height) ||
-	    width <= 0 || height <= 0) {
+	    width <= 0 || height <= 0)
 		return false;
-	}
-
-	const auto pixel_width = static_cast<std::size_t>(width);
-	const auto pixel_height = static_cast<std::size_t>(height);
-	if (pixel_width >
-	    std::numeric_limits<std::size_t>::max() / 4 / pixel_height) {
+	const auto w = static_cast<std::size_t>(width);
+	const auto h = static_cast<std::size_t>(height);
+	if (w > std::numeric_limits<std::size_t>::max() / 4 / h)
 		return false;
-	}
-	std::vector<std::uint8_t> pixels(pixel_width * pixel_height * 4);
+	std::vector<std::uint8_t> bottom_up(w * h * 4);
 
 	GLint previous_read_fbo = 0;
 	GLint previous_pack_alignment = 4;
@@ -160,17 +160,73 @@ bool save_back_buffer(const std::filesystem::path &path, SDL_Window *window)
 	glReadBuffer(GL_BACK);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 	glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE,
-		     pixels.data());
+		     bottom_up.data());
 	glPixelStorei(GL_PACK_ALIGNMENT, previous_pack_alignment);
 	glBindFramebuffer(GL_READ_FRAMEBUFFER,
 			  static_cast<GLuint>(previous_read_fbo));
 
+	out.resize(bottom_up.size());
+	for (std::size_t y = 0; y < h; ++y)
+		std::copy_n(bottom_up.data() + (h - 1 - y) * w * 4, w * 4,
+			    out.data() + y * w * 4);
+	return true;
+}
+
+// Box-filter resize of an RGBA region: each output pixel averages the
+// source pixels it covers, which keeps small text readable when shrinking.
+std::vector<std::uint8_t> resize_box(const std::uint8_t *src, int stride,
+				     int sw, int sh, int dw, int dh)
+{
+	std::vector<std::uint8_t> out(static_cast<std::size_t>(dw) * dh * 4);
+	const double fx = static_cast<double>(sw) / dw;
+	const double fy = static_cast<double>(sh) / dh;
+	for (int y = 0; y < dh; ++y) {
+		const double y0 = y * fy;
+		const double y1 = std::min<double>(sh, (y + 1) * fy);
+		for (int x = 0; x < dw; ++x) {
+			const double x0 = x * fx;
+			const double x1 = std::min<double>(sw, (x + 1) * fx);
+			double acc[4] = { 0, 0, 0, 0 };
+			double total = 0.0;
+			for (int py = static_cast<int>(y0);
+			     py < static_cast<int>(std::ceil(y1)); ++py) {
+				const double wy = std::min<double>(y1, py + 1) -
+						  std::max<double>(y0, py);
+				for (int px = static_cast<int>(x0);
+				     px < static_cast<int>(std::ceil(x1)); ++px) {
+					const double wt =
+						wy * (std::min<double>(x1, px + 1) -
+						      std::max<double>(x0, px));
+					const std::uint8_t *p =
+						src + static_cast<std::size_t>(py) * stride +
+						static_cast<std::size_t>(px) * 4;
+					for (int c = 0; c < 4; ++c)
+						acc[c] += p[c] * wt;
+					total += wt;
+				}
+			}
+			std::uint8_t *o =
+				out.data() + (static_cast<std::size_t>(y) * dw + x) * 4;
+			for (int c = 0; c < 4; ++c)
+				o[c] = static_cast<std::uint8_t>(
+					std::lround(acc[c] / total));
+		}
+	}
+	return out;
+}
+
+bool save_back_buffer(const std::filesystem::path &path, SDL_Window *window)
+{
+	int width = 0;
+	int height = 0;
+	std::vector<std::uint8_t> pixels;
+	if (!read_back_buffer(window, width, height, pixels))
+		return false;
 	SDL_Surface *surface = SDL_CreateSurfaceFrom(
 		width, height, SDL_PIXELFORMAT_RGBA32, pixels.data(), width * 4);
 	if (!surface)
 		return false;
-	const bool saved = SDL_FlipSurface(surface, SDL_FLIP_VERTICAL) &&
-			   SDL_SaveBMP(surface, path.string().c_str());
+	const bool saved = SDL_SaveBMP(surface, path.string().c_str());
 	SDL_DestroySurface(surface);
 	return saved;
 }
@@ -271,6 +327,104 @@ std::string renderable_to_json_string(const Renderable &tree)
 bool save_screenshot(SDL_Window *window, const std::filesystem::path &path)
 {
 	return save_back_buffer(path, window);
+}
+
+ScreenshotResult capture_screenshot(SDL_Window *window, double virt_w,
+				    double virt_h,
+				    const ScreenshotOptions &options,
+				    const std::filesystem::path &path)
+{
+	ScreenshotResult result;
+	int width = 0;
+	int height = 0;
+	std::vector<std::uint8_t> pixels;
+	if (!read_back_buffer(window, width, height, pixels)) {
+		result.error = "screenshot failed";
+		return result;
+	}
+	for (std::size_t i = 3; i < pixels.size(); i += 4)
+		pixels[i] = 255;
+
+	compute_fit_rect(width, height, virt_w, virt_h, result.view_x,
+			 result.view_y, result.view_w, result.view_h);
+	// Window pixels per virtual unit.
+	const double ppu = virt_w > 0.0 ? result.view_w / virt_w : 1.0;
+	double cx = 0.0, cy = 0.0, cw = width, ch = height;
+	if (options.view || options.has_region) {
+		cx = result.view_x;
+		cy = result.view_y;
+		cw = result.view_w;
+		ch = result.view_h;
+	}
+	if (options.has_region) {
+		cx += options.region_x * ppu;
+		cy += options.region_y * ppu;
+		cw = options.region_w * ppu;
+		ch = options.region_h * ppu;
+	}
+	const int x0 = std::clamp(static_cast<int>(std::lround(cx)), 0, width);
+	const int y0 = std::clamp(static_cast<int>(std::lround(cy)), 0, height);
+	const int x1 = std::clamp(static_cast<int>(std::lround(cx + cw)), 0, width);
+	const int y1 = std::clamp(static_cast<int>(std::lround(cy + ch)), 0, height);
+	if (x1 <= x0 || y1 <= y0) {
+		result.error = "the region is outside the view";
+		return result;
+	}
+	const int sw = x1 - x0;
+	const int sh = y1 - y0;
+
+	// Output size: the captured pixels, or the requested size in virtual
+	// units; never up, and at most max_width wide.
+	double tw = sw;
+	double th = sh;
+	if (options.virtual_scale && ppu > 0.0) {
+		tw = options.has_region ? options.region_w :
+		     options.view       ? virt_w :
+					  sw / ppu;
+		th = options.has_region ? options.region_h :
+		     options.view       ? virt_h :
+					  sh / ppu;
+	}
+	if (tw > sw) {
+		th *= sw / tw;
+		tw = sw;
+	}
+	if (options.max_width > 0 && tw > options.max_width) {
+		th *= options.max_width / tw;
+		tw = options.max_width;
+	}
+	const int dw = std::max(1, static_cast<int>(std::lround(tw)));
+	const int dh = std::max(1, static_cast<int>(std::lround(th)));
+	const std::uint8_t *origin =
+		pixels.data() +
+		(static_cast<std::size_t>(y0) * width + x0) * 4;
+	std::vector<std::uint8_t> image =
+		resize_box(origin, width * 4, sw, sh, dw, dh);
+
+	bool saved = false;
+	const std::string file = path.string();
+	if (options.format == ScreenshotOptions::Format::Jpeg) {
+		saved = stbi_write_jpg(file.c_str(), dw, dh, 4, image.data(),
+				       std::clamp(options.quality, 1, 100)) != 0;
+	} else {
+		SDL_Surface *surface = SDL_CreateSurfaceFrom(
+			dw, dh, SDL_PIXELFORMAT_RGBA32, image.data(), dw * 4);
+		if (surface) {
+			saved = options.format == ScreenshotOptions::Format::Png ?
+					SDL_SavePNG(surface, file.c_str()) :
+					SDL_SaveBMP(surface, file.c_str());
+			SDL_DestroySurface(surface);
+		}
+	}
+	if (!saved) {
+		result.error = "screenshot failed";
+		return result;
+	}
+	result.ok = true;
+	result.width = dw;
+	result.height = dh;
+	result.pixels_per_unit = ppu * dw / sw;
+	return result;
 }
 
 } // namespace declgl

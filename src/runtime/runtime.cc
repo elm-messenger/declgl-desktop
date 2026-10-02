@@ -317,14 +317,58 @@ void Runtime::Impl::process_control_commands()
 					renderable_to_json_string(latest_render_tree_));
 			respond(true, result);
 		} else if (method == "screenshot") {
+			declgl::ScreenshotOptions options;
+			std::string format = "bmp";
+			if (params.is_object()) {
+				options.view = params.value("area", std::string("window")) == "view";
+				if (params.contains("region") && params["region"].is_object()) {
+					const json &r = params["region"];
+					options.has_region = true;
+					options.region_x = r.value("x", 0.0);
+					options.region_y = r.value("y", 0.0);
+					options.region_w = r.value("width", 0.0);
+					options.region_h = r.value("height", 0.0);
+				}
+				options.virtual_scale =
+					params.value("scale", std::string("native")) == "virtual";
+				options.max_width = params.value("max_width", 0);
+				options.quality = params.value("quality", 90);
+				format = params.value("format", std::string("bmp"));
+			}
+			if (format == "png")
+				options.format = declgl::ScreenshotOptions::Format::Png;
+			else if (format == "jpeg")
+				options.format = declgl::ScreenshotOptions::Format::Jpeg;
+			else if (format != "bmp") {
+				respond(false, json({ { "message", "unknown screenshot format " + format } }));
+				continue;
+			}
+			if (options.has_region && (options.region_w <= 0.0 || options.region_h <= 0.0)) {
+				respond(false, json({ { "message", "region needs a positive width and height" } }));
+				continue;
+			}
 			std::filesystem::path path = std::filesystem::current_path() /
-				("mcp_frame_" + std::to_string(frame_number_) + ".bmp");
+				("mcp_frame_" + std::to_string(frame_number_) + "." +
+				 (format == "jpeg" ? "jpg" : format));
 			if (params.contains("path"))
 				path = params["path"].get<std::string>();
-			const bool saved = save_screenshot(
-				engine_ ? engine_->sdl_window() : nullptr, path);
-			respond(saved, saved ? json({ { "path", path.string() } }) :
-					 json({ { "message", "screenshot failed" } }));
+			const declgl::ScreenshotResult shot = declgl::capture_screenshot(
+				engine_ ? engine_->sdl_window() : nullptr, virt_width_,
+				virt_height_, options, path);
+			if (!shot.ok) {
+				respond(false, json({ { "message", shot.error } }));
+			} else {
+				respond(true, json({
+					{ "path", path.string() },
+					{ "format", format },
+					{ "width", shot.width },
+					{ "height", shot.height },
+					{ "view", { { "x", shot.view_x }, { "y", shot.view_y },
+						    { "width", shot.view_w }, { "height", shot.view_h } } },
+					{ "virtual", { { "width", virt_width_ }, { "height", virt_height_ } } },
+					{ "pixels_per_unit", shot.pixels_per_unit },
+				}));
+			}
 		} else if (method == "input") {
 			using mlregl::transport::backend::Event;
 			Event event;
