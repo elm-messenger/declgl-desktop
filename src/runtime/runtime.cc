@@ -273,8 +273,14 @@ void Runtime::Impl::process_control_commands()
 		} else if (method == "step") {
 			paused_ = true;
 			if (!controlled_time_) {
+				// The controlled clock continues from the game's
+				// current time, so ticks never go back.
 				controlled_time_ = true;
-				controlled_time_ms_ = 0.0;
+				controlled_time_ms_ =
+					start_ticks_ == 0 ?
+						0.0 :
+						static_cast<double>(SDL_GetTicks() -
+								    start_ticks_);
 			}
 			std::uint64_t frames = 1;
 			if (params.is_object() && params.contains("frames") &&
