@@ -11,14 +11,14 @@
 //
 //   {
 //     "common":        { "scaleW": int, "scaleH": int,
-//                        "lineHeight": int, "base": int },
+//                        "lineHeight": float, "base": float },
 //     "distanceField": { "distanceRange": float },
 //     "chars": [
 //       { "char": "a", "id": 97, "x": int, "y": int,
 //         "width": int, "height": int,
-//         "xoffset": int, "yoffset": int, "xadvance": int }, ... ],
+//         "xoffset": float, "yoffset": float, "xadvance": float }, ... ],
 //     "kernings": [
-//       { "first": int, "second": int, "amount": int }, ...   (optional)
+//       { "first": int, "second": int, "amount": float }, ...   (optional)
 //     ]
 //   }
 //
@@ -55,9 +55,11 @@ struct Glyph {
 	int y = 0;
 	int width = 0; // atlas-px size
 	int height = 0;
-	int xoffset = 0; // pen-relative draw offset (px @ font size)
-	int yoffset = 0;
-	int xadvance = 0; // pen advance after this glyph (px @ font size)
+	// Metrics are fractional in generators' output (msdf-bmfont-xml -d),
+	// and the browser host uses them as such.
+	float xoffset = 0.f; // pen-relative draw offset (px @ font size)
+	float yoffset = 0.f;
+	float xadvance = 0.f; // pen advance after this glyph (px @ font size)
 
 	// Pre-divided UV coordinates so the walker doesn't re-divide each
 	// frame. Computed in [Font::parse].
@@ -90,7 +92,7 @@ class Font {
 	// Kerning offset for the (first, second) pair, or 0 if none.
 	// Result is in atlas units (BMFont JSON's `amount` field, which is
 	// already in atlas pixels). The walker scales by size/fontHeight.
-	int kerning(int first, int second) const;
+	float kerning(int first, int second) const;
 
 	// Global metrics — sourced directly from the JSON.
 	int scaleW() const
@@ -101,11 +103,11 @@ class Font {
 	{
 		return scaleH_;
 	}
-	int lineHeight() const
+	float lineHeight() const
 	{
 		return lineHeight_;
 	}
-	int base() const
+	float base() const
 	{
 		return base_;
 	}
@@ -139,7 +141,7 @@ class Font {
 	// text layout doesn't blow up. The JS reference implementation
 	// throws here; we choose to be lenient because asset authors
 	// routinely leave space out.
-	int space_advance() const
+	float space_advance() const
 	{
 		return space_advance_;
 	}
@@ -148,14 +150,14 @@ class Font {
 	std::vector<Glyph> glyphs_;
 	std::unordered_map<int, std::size_t> by_id_; // codepoint → idx
 	// (first << 21) | second  — packed key for the kerning table.
-	std::unordered_map<uint64_t, int> kernings_;
+	std::unordered_map<uint64_t, float> kernings_;
 
 	int scaleW_ = 0;
 	int scaleH_ = 0;
-	int lineHeight_ = 0;
-	int base_ = 0;
+	float lineHeight_ = 0.f;
+	float base_ = 0.f;
 	float distance_range_ = 0.f;
-	int space_advance_ = 0;
+	float space_advance_ = 0.f;
 
 	std::string error_;
 };

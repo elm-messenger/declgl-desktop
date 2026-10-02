@@ -3,6 +3,7 @@
 #include "renderer/programs/textbox_program.h"
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,54 @@
 
 namespace declgl
 {
+
+namespace
+{
+
+// The text's Unicode code points, as the browser host lays out JavaScript
+// strings; malformed UTF-8 becomes U+FFFD.
+std::vector<std::uint32_t> decode_utf8(const std::string &s)
+{
+	std::vector<std::uint32_t> out;
+	out.reserve(s.size());
+	std::size_t i = 0;
+	while (i < s.size()) {
+		const auto b0 = static_cast<unsigned char>(s[i]);
+		int len = b0 < 0x80 ? 1 : (b0 >> 5) == 0x6 ? 2 :
+			  (b0 >> 4) == 0xE ? 3 : (b0 >> 3) == 0x1E ? 4 : 0;
+		std::uint32_t cp = len == 1 ? b0 :
+				   len == 2 ? (b0 & 0x1Fu) :
+				   len == 3 ? (b0 & 0x0Fu) : (b0 & 0x07u);
+		bool ok = len > 0 && i + len <= s.size();
+		for (int k = 1; ok && k < len; ++k) {
+			const auto b = static_cast<unsigned char>(s[i + k]);
+			if ((b >> 6) != 0x2)
+				ok = false;
+			else
+				cp = (cp << 6) | (b & 0x3Fu);
+		}
+		if (!ok) {
+			out.push_back(0xFFFD);
+			++i;
+			continue;
+		}
+		out.push_back(cp);
+		i += static_cast<std::size_t>(len);
+	}
+	return out;
+}
+
+// JavaScript's \s, which the browser host's layout uses ('\n' breaks
+// lines before this is asked).
+bool is_js_space(std::uint32_t c)
+{
+	return (c >= 0x09 && c <= 0x0D) || c == 0x20 || c == 0xA0 ||
+	       c == 0x1680 || (c >= 0x2000 && c <= 0x200A) || c == 0x2028 ||
+	       c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000 ||
+	       c == 0xFEFF;
+}
+
+} // namespace
 namespace programs
 {
 
@@ -211,12 +260,12 @@ bool TextboxProgram::prepare(const ProgramCallFields &fields,
 		prev_glyph = nullptr;
 	};
 
-	while (cursor < static_cast<int>(text.size())) {
-		const unsigned char ch =
-			static_cast<unsigned char>(text[cursor]);
+	const std::vector<std::uint32_t> cps = decode_utf8(text);
+	while (cursor < static_cast<int>(cps.size())) {
+		const std::uint32_t ch = cps[static_cast<std::size_t>(cursor)];
 
 		// Newline: terminate current line.
-		if (ch == '\n' || ch == '\r') {
+		if (ch == '\n') {
 			++cursor;
 			new_line();
 			continue;
@@ -224,7 +273,7 @@ bool TextboxProgram::prepare(const ProgramCallFields &fields,
 
 		Line &line = lines.back();
 		float advance = 0.f;
-		bool is_ws = (ch == ' ' || ch == '\t');
+		bool is_ws = is_js_space(ch);
 
 		if (is_ws) {
 			word_cursor = cursor + 1;
@@ -253,7 +302,7 @@ bool TextboxProgram::prepare(const ProgramCallFields &fields,
 			}
 			// Apply kerning if previous glyph is in same font.
 			if (cf == prev_glyph_font && prev_glyph != nullptr) {
-				const int kern_amt =
+				const float kern_amt =
 					cf->kerning(prev_glyph->id, g->id);
 				const float kern =
 					static_cast<float>(kern_amt) * size /

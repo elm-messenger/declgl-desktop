@@ -53,8 +53,8 @@ bool Font::parse(const char *bytes, std::size_t size)
 	const auto &common = *common_it;
 	scaleW_ = common.value("scaleW", 0);
 	scaleH_ = common.value("scaleH", 0);
-	lineHeight_ = common.value("lineHeight", 0);
-	base_ = common.value("base", 0);
+	lineHeight_ = common.value("lineHeight", 0.f);
+	base_ = common.value("base", 0.f);
 	if (scaleW_ <= 0 || scaleH_ <= 0) {
 		error_ = "common.scaleW / scaleH must be positive";
 		return false;
@@ -91,9 +91,9 @@ bool Font::parse(const char *bytes, std::size_t size)
 		g.y = c.value("y", 0);
 		g.width = c.value("width", 0);
 		g.height = c.value("height", 0);
-		g.xoffset = c.value("xoffset", 0);
-		g.yoffset = c.value("yoffset", 0);
-		g.xadvance = c.value("xadvance", 0);
+		g.xoffset = c.value("xoffset", 0.f);
+		g.yoffset = c.value("yoffset", 0.f);
+		g.xadvance = c.value("xadvance", 0.f);
 
 		// No-flipY UV math: the texture is uploaded with the PNG's
 		// natural orientation (Y grows downward), so the glyph's
@@ -119,7 +119,7 @@ bool Font::parse(const char *bytes, std::size_t size)
 	// advance from a representative low-letter (typically 'n') so
 	// word spacing doesn't degenerate to zero. The JS reference
 	// throws here; we choose to be lenient.
-	if (space_advance_ == 0) {
+	if (space_advance_ == 0.f) {
 		if (auto it = by_id_.find('n'); it != by_id_.end()) {
 			space_advance_ = glyphs_[it->second].xadvance;
 		} else if (auto it = by_id_.find('m'); it != by_id_.end()) {
@@ -128,7 +128,7 @@ bool Font::parse(const char *bytes, std::size_t size)
 			// Last resort: ~half a lineheight.
 			space_advance_ = lineHeight_ / 2;
 		} else {
-			space_advance_ = 8; // arbitrary positive value
+			space_advance_ = 8.f; // arbitrary positive value
 		}
 		DECLGL_LOG_WARN("no space glyph in atlas; "
 				"falling back to xadvance={}",
@@ -144,7 +144,7 @@ bool Font::parse(const char *bytes, std::size_t size)
 				continue;
 			const int first = k.value("first", 0);
 			const int second = k.value("second", 0);
-			const int amount = k.value("amount", 0);
+			const float amount = k.value("amount", 0.f);
 			if (first == 0 || second == 0)
 				continue;
 			kernings_[kerning_key(first, second)] = amount;
@@ -168,10 +168,10 @@ const Glyph *Font::find_glyph_by_id(int codepoint) const
 	return &glyphs_[it->second];
 }
 
-int Font::kerning(int first, int second) const
+float Font::kerning(int first, int second) const
 {
 	auto it = kernings_.find(kerning_key(first, second));
-	return it == kernings_.end() ? 0 : it->second;
+	return it == kernings_.end() ? 0.f : it->second;
 }
 
 } // namespace declgl
