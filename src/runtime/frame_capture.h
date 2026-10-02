@@ -69,7 +69,9 @@ struct ScreenshotResult {
 };
 
 // Capture the back buffer as [options] say, opaque (as the window shows it),
-// into [path]. Same threading rule as [save_screenshot].
+// into [path]. Same threading rule as [save_screenshot]. The back buffer
+// must hold the frame to capture: after a swap its contents are undefined
+// (in practice the frame before), so draw the frame again first.
 ScreenshotResult capture_screenshot(SDL_Window *window, double virt_w,
 				    double virt_h,
 				    const ScreenshotOptions &options,

@@ -352,6 +352,10 @@ void Runtime::Impl::process_control_commands()
 				 (format == "jpeg" ? "jpg" : format));
 			if (params.contains("path"))
 				path = params["path"].get<std::string>();
+			// The back buffer was swapped at the end of the last frame,
+			// so it no longer holds that frame: draw it again.
+			if (engine_ && has_latest_render_tree_)
+				engine_->render(latest_render_tree_, max_assets_per_frame_);
 			const declgl::ScreenshotResult shot = declgl::capture_screenshot(
 				engine_ ? engine_->sdl_window() : nullptr, virt_width_,
 				virt_height_, options, path);
