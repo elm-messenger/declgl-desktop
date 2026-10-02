@@ -66,7 +66,7 @@ void ControlClient::start_from_environment()
 				       { "runtime", "ml-regl-desktop" },
 				       { "capabilities", { "pause", "resume", "quit", "step",
 									"set_time", "get_state", "get_render_tree",
-									"screenshot", "screenshot_view", "input" } } };
+									"screenshot", "input" } } };
 			impl_->socket.send(hello.dump());
 		} else if (msg->type == ix::WebSocketMessageType::Message) {
 			if (msg->str.size() > 1024 * 1024)
