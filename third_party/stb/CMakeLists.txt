@@ -1,4 +1,4 @@
-# stb (image loader + ogg vorbis) — vendored single-header sources.
+# stb (image loader and writer + ogg vorbis) — vendored single-header sources.
 #
 # We compile each implementation into one TU so it can be linked once
 # into the final bundle. Consumers just `#include "stb_image.h"` /
@@ -8,6 +8,7 @@
 
 add_library(stb_image OBJECT
     stb_image.cc
+    stb_image_write.cc
 )
 
 target_include_directories(stb_image PUBLIC
@@ -18,14 +19,15 @@ set_target_properties(stb_image PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
-# stb_image.h has a few warnings under -Wall that are harmless and not
-# under our control; suppress only on this target so they don't drown
-# out our own warnings elsewhere.
+# stb_image.h and stb_image_write.h have a few warnings under -Wall/-Wextra
+# that are harmless and not under our control; suppress only on this target
+# so they don't drown out our own warnings elsewhere.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(stb_image PRIVATE
         -Wno-implicit-fallthrough
         -Wno-unused-but-set-variable
         -Wno-unused-function
+        -Wno-missing-field-initializers
     )
 endif()
 
