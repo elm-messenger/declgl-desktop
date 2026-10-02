@@ -50,7 +50,8 @@ struct ScreenshotOptions {
 	// Part of the view in virtual units (implies [view]).
 	bool has_region = false;
 	double region_x = 0.0, region_y = 0.0, region_w = 0.0, region_h = 0.0;
-	// Scale to one pixel per virtual unit (never up).
+	// Scale to one pixel per virtual unit, up or down, so the image has
+	// the virtual size whatever the window's size.
 	bool virtual_scale = false;
 	// Cap on the output width in pixels; 0 = none.
 	int max_width = 0;

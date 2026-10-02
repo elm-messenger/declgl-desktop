@@ -376,20 +376,20 @@ ScreenshotResult capture_screenshot(SDL_Window *window, double virt_w,
 	const int sh = y1 - y0;
 
 	// Output size: the captured pixels, or the requested size in virtual
-	// units; never up, and at most max_width wide.
+	// units (whatever part of it is in the window), scaled up or down; at
+	// most max_width wide. A window a pixel off the virtual size (a window
+	// manager's choice) still gives an image of the virtual size.
 	double tw = sw;
 	double th = sh;
 	if (options.virtual_scale && ppu > 0.0) {
-		tw = options.has_region ? options.region_w :
-		     options.view       ? virt_w :
-					  sw / ppu;
-		th = options.has_region ? options.region_h :
-		     options.view       ? virt_h :
-					  sh / ppu;
-	}
-	if (tw > sw) {
-		th *= sw / tw;
-		tw = sw;
+		tw = (options.has_region ? options.region_w :
+		      options.view       ? virt_w :
+					   cw / ppu) *
+		     std::min(1.0, sw / cw);
+		th = (options.has_region ? options.region_h :
+		      options.view       ? virt_h :
+					   ch / ppu) *
+		     std::min(1.0, sh / ch);
 	}
 	if (options.max_width > 0 && tw > options.max_width) {
 		th *= options.max_width / tw;
