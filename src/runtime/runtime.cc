@@ -347,11 +347,22 @@ void Runtime::Impl::process_control_commands()
 				respond(false, json({ { "message", "region needs a positive width and height" } }));
 				continue;
 			}
-			std::filesystem::path path = std::filesystem::current_path() /
-				("mcp_frame_" + std::to_string(frame_number_) + "." +
-				 (format == "jpeg" ? "jpg" : format));
-			if (params.contains("path"))
+			// A relative path is relative to the game's working
+			// directory; missing directories are created.
+			std::filesystem::path path =
+				"mcp_frame_" + std::to_string(frame_number_) + "." +
+				(format == "jpeg" ? "jpg" : format);
+			if (params.contains("path") && params["path"].is_string())
 				path = params["path"].get<std::string>();
+			std::error_code ec;
+			path = std::filesystem::absolute(path, ec);
+			if (!ec && path.has_parent_path())
+				std::filesystem::create_directories(path.parent_path(), ec);
+			if (ec) {
+				respond(false, json({ { "message", "cannot create the directory of " +
+								   path.string() + ": " + ec.message() } }));
+				continue;
+			}
 			// The back buffer was swapped at the end of the last frame,
 			// so it no longer holds that frame: draw it again.
 			if (engine_ && has_latest_render_tree_)

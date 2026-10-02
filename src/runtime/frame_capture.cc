@@ -1,9 +1,11 @@
 #include "runtime/frame_capture.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -339,7 +341,7 @@ ScreenshotResult capture_screenshot(SDL_Window *window, double virt_w,
 	int height = 0;
 	std::vector<std::uint8_t> pixels;
 	if (!read_back_buffer(window, width, height, pixels)) {
-		result.error = "screenshot failed";
+		result.error = "cannot read the window's pixels";
 		return result;
 	}
 	for (std::size_t i = 3; i < pixels.size(); i += 4)
@@ -402,10 +404,14 @@ ScreenshotResult capture_screenshot(SDL_Window *window, double virt_w,
 		resize_box(origin, width * 4, sw, sh, dw, dh);
 
 	bool saved = false;
+	std::string reason;
 	const std::string file = path.string();
 	if (options.format == ScreenshotOptions::Format::Jpeg) {
+		errno = 0;
 		saved = stbi_write_jpg(file.c_str(), dw, dh, 4, image.data(),
 				       std::clamp(options.quality, 1, 100)) != 0;
+		if (!saved)
+			reason = errno ? std::strerror(errno) : "encoding failed";
 	} else {
 		SDL_Surface *surface = SDL_CreateSurfaceFrom(
 			dw, dh, SDL_PIXELFORMAT_RGBA32, image.data(), dw * 4);
@@ -415,9 +421,11 @@ ScreenshotResult capture_screenshot(SDL_Window *window, double virt_w,
 					SDL_SaveBMP(surface, file.c_str());
 			SDL_DestroySurface(surface);
 		}
+		if (!saved)
+			reason = SDL_GetError();
 	}
 	if (!saved) {
-		result.error = "screenshot failed";
+		result.error = "cannot write " + file + ": " + reason;
 		return result;
 	}
 	result.ok = true;
